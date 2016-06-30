@@ -1,0 +1,296 @@
+#!/usr/bin/env python
+# Copyright 2015 Flipkart Internet Pvt. Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+import json
+import requests
+import os.path
+import time
+from tabulate import tabulate
+from termcolor import colored
+
+marathon="localhost:8080"
+waitTime=10
+
+def url(path):
+    return "http://" + marathon + path
+
+def printApiError(r):
+    error=json.loads(r.text)
+    try:
+        if 'details' in error:
+            print("Error: Marathon returned [" + str(r.status_code) + "] : " + error['message'] + ": " + error['details'])
+        else:
+            print("Error: Marathon returned [" + str(r.status_code) + "] : " + error['message'])
+    except:
+        print("Error: Marathon returned [" + str(r.status_code) + "] : " + r.text)
+
+def printInfoTable(apps, aliveOnly=False, deadOnly=False):
+    rows=[]
+    for app in apps:
+        if True == aliveOnly and 0 == app['tasksHealthy']:
+            continue
+        if True == deadOnly and 0 < app['tasksHealthy']:
+            continue
+        row=[]
+        row.append(app['id'])
+        row.append(app['cpus'])
+        row.append(app['mem'])
+        #row.append(app['tasksHealthy'])
+        if not 'taskStats' in app or not 'totalSummary' in app['taskStats']:
+            row.append(0)
+            row.append(0)
+            row.append(0)
+            row.append(0)
+            row.append(colored("DOWN", 'red'))
+        else:
+            taskStats=app['taskStats']['totalSummary']['stats']['counts']
+            row.append(taskStats['healthy'])
+            row.append(taskStats['unhealthy'])
+            row.append(taskStats['running'])
+            row.append(taskStats['staged'])
+            row.append(colored("UP", 'green'))
+        rows.append(row)
+    print tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid')
+
+def apps(aliveOnly, deadOnly):
+    params = {'embed' : 'apps.taskStats'}
+    r = requests.get(url("/v2/apps"), params=params)
+    if 200 != r.status_code:
+        printApiError(r)
+        return
+    apps = r.json()['apps']
+    apps.sort(key=lambda x: x['id'])
+    printInfoTable(apps, aliveOnly=aliveOnly, deadOnly=deadOnly)
+
+def listCommand(listArgParser):
+    if listArgParser.up and listArgParser.down:
+        print("Both 'up' and 'down' together doesn't make sense. Are you testing me? Don't...")
+        return
+    apps(listArgParser.up, listArgParser.down)
+
+def deployCommand(deployOptionsParser):
+    #print(deployOptionsParser)
+    configFile=deployOptionsParser.config
+    if not os.path.isfile(configFile):
+        print("Error: Deployment descriptor file " + configFile + " does not exist")
+        return
+    with open(configFile, 'r') as myfile:
+        data=myfile.read()
+    #requests.post(
+    #print("Config: " + configFile)
+    r = requests.post(url("/v2/apps"), data = data, headers = {'content-type': 'application/json'})
+    if r.status_code == 201:
+        print("App deployment request accepted. Use list command to check")
+    elif r.status_code == 409:
+        print("Error: App already exists")
+    else:
+        printApiError(r)
+
+def loadInstance(instance, rows):
+    row = []
+    row.append(instance['id'])
+    row.append(instance['host'])
+    row.append(', '.join([str(x) for x in instance['ports']]))
+    row.append(instance['startedAt'])
+    if 'healthCheckResults' in instance:
+        if instance['healthCheckResults'][0]['alive'] == True:
+            row.append(colored('HEALTHY', 'green'))
+        else:
+            row.append(colored('UNHEALTHY', 'red'))
+    else:
+        row.append(colored('STAGING', 'yellow'))
+    rows.append(row)
+
+def isInstanceHealthy(instance):
+    return 'healthCheckResults' in instance and instance['healthCheckResults'][0]['alive'] == True
+ 
+def adminEndpoint(instance):
+    if 'ports' in instance and len(instance['ports']) == 2:
+        return "http://" + instance['host'] + ":" + str(instance['ports'][1])
+    return None
+
+def getAppInfo(appName):
+    params = {'embed' : ['apps.taskStats', 'apps.deployments']}
+    r = requests.get(url("/v2/apps/" + appName), params=params)
+    if 200 != r.status_code:
+        printApiError(r)
+        return None
+    return r
+
+def scale(appName, scale, force=False):
+    r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'})
+    if 200 == r.status_code:
+        print("App " + appName + " scaled to " + str(scale))
+    else:
+        printApiError(r)
+
+def killInstance(appName, instance, grace, scale):
+    endpoint=adminEndpoint(instance)
+    if None == endpoint:
+        print("No admin port info in instance: " + instance['id'])
+        return
+    oorUrl=endpoint + "/tasks/ranger-oor"
+    print("Calling " + oorUrl)
+    oorResponse=requests.post(oorUrl)
+    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+        print("Took node oor on ranger")
+    else:
+        print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+        return
+    print("Waiting for grace period: " + str(grace) + " Second(s)")
+    time.sleep(grace)
+    params={'scale' : scale}
+    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params)
+    if 200 == killResponse.status_code:
+        print("Killed " + instance['id'])
+    else:
+        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
+
+def waitForTargetScale(appName, targetScale):
+    while True:
+        r = getAppInfo(appName)
+        if None == r:
+            print("No app: " + appName)
+            exit
+        data=r.json()
+        app=data['app']
+        instances = app['tasks']
+        healthy = 0
+        for instance in instances:
+            if isInstanceHealthy(instance):
+                healthy += 1
+        if healthy == targetScale:
+            print("Target scale factor reached: " + str(targetScale))
+            return
+        else:
+            print("Current scale factor: " + str(healthy) + " Target: " + str(targetScale))
+        time.sleep(3)
+  
+def restartCommand(restartOptionsParser):
+    appName = restartOptionsParser.app
+    r = getAppInfo(appName)
+    if None == r:
+        print("Error: No such app:" + appName)
+        return
+    data=r.json()
+    app=data['app']
+    instances = app['tasks']
+    if 0 == len(instances):
+        print("There are no running instances. Use 'scale' to scale up")
+        return
+    targetScale=len(instances)
+    if restartOptionsParser.noScaling == False:
+        targetScale=len(instances) + 1
+        scale(appName, targetScale)
+        waitForTargetScale(appName, targetScale)
+    for instance in instances:
+        killInstance(appName, instance, restartOptionsParser.grace, False)
+        time.sleep(2)
+        waitForTargetScale(appName, targetScale)
+        print("Instance " + instance['id'] + " replaced")
+    if restartOptionsParser.noScaling == False:
+        scale(appName, targetScale - 1)
+        waitForTargetScale(appName, targetScale - 1) 
+    print "App restarted"
+
+def infoCommand(infoOptionsParser):
+    r = getAppInfo(infoOptionsParser.app)
+    if None == r:
+        print("Error: No such app:" + infoOptionsParser.app)
+        return
+    data=r.json()
+    app=data['app']
+    printInfoTable([app])
+    if not 'taskStats' in app or not 'totalSummary' in app['taskStats']:
+        print("App is down")
+    else:
+        rows = []
+        for instance in app['tasks']:
+            loadInstance(instance, rows) 
+        print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
+        rows=[]
+        for deployment in app['deployments']:
+            rows.append([deployment['id']])
+        if len(rows) > 0:
+            print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
+        
+            
+def scaleCommand(scaleOptionsParser):
+    appName = scaleOptionsParser.app
+    r = getAppInfo(appName)
+    if None == r:
+        print("Error: No such app:" + appName)
+        return
+    data=r.json()
+    app=data['app']
+    scale(appName, scaleOptionsParser.instances)
+    waitForTargetScale(appName, scaleOptionsParser.instances)
+ 
+def suspendCommand(suspendOptionsParser):
+    appName = suspendOptionsParser.app
+    r = getAppInfo(appName)
+    if None == r:
+        print("Error: No such app:" + appName)
+        return
+    data=r.json()
+    app=data['app']
+    scale(appName, 0)
+    waitForTargetScale(appName, 0)
+ 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
+    parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
+
+    subparsers = parser.add_subparsers(help='Available operations')
+
+    #List
+    listOptionsParser = subparsers.add_parser('list', help='List running apps')
+    listOptionsParser.add_argument('-u', '--up', help='Show only apps that are alive', action='store_true')
+    listOptionsParser.add_argument('-d', '--down', help='Show only apps that are dead', action='store_true')
+    listOptionsParser.set_defaults(func=listCommand)
+
+    #Info
+    infoOptionsParser = subparsers.add_parser('info', help='Info about a running app')
+    infoOptionsParser.add_argument('app', help='App name')
+    infoOptionsParser.set_defaults(func=infoCommand)
+
+    #Deploy
+    deployOptionsParser = subparsers.add_parser('deploy', help='Deploy an app')
+    deployOptionsParser.add_argument('-c' , '--config', help='Deployment json descriptor', required=True)
+    deployOptionsParser.set_defaults(func=deployCommand)
+
+    #Restart
+    restartOptionsParser = subparsers.add_parser('restart', help='Restart an app')
+    restartOptionsParser.add_argument('app', help='App name')
+    restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=5)
+    restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
+    restartOptionsParser.set_defaults(func=restartCommand)
+
+    #Scale
+    restartOptionsParser = subparsers.add_parser('scale', help='Scale an app')
+    restartOptionsParser.add_argument('app', help='App name')
+    restartOptionsParser.add_argument('-n', '--instances', help='Number of instances required. This number is absolute.', type=int, required=True)
+    restartOptionsParser.set_defaults(func=scaleCommand)
+
+    #Suspend
+    suspendOptionsParser = subparsers.add_parser('suspend', help='Suspend an app (equivalent to scale=0)')
+    suspendOptionsParser.add_argument('app', help='App name')
+    suspendOptionsParser.set_defaults(func=suspendCommand)
+
+    parsed=parser.parse_args()
+    marathon=parsed.endpoint
+
+    parsed.func(parsed)
