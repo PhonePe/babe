@@ -236,8 +236,21 @@ def scaleCommand(scaleOptionsParser):
         return
     data=r.json()
     app=data['app']
-    scale(appName, scaleOptionsParser.instances)
-    waitForTargetScale(appName, scaleOptionsParser.instances)
+    instances = app['tasks']
+    instanceCount=scaleOptionsParser.instances
+    currentInstances=len(instances)
+    if instanceCount == currentInstances:
+        print("Nothing to do. Already at: " + str(currentInstances))
+        return
+    for instance in instances:
+        if instanceCount >= currentInstances:
+            break
+        killInstance(appName, instance, 5, True)
+        time.sleep(2)
+        currentInstances = currentInstances - 1
+        print("Instance " + instance['id'] + " stop requested")
+    scale(appName, instanceCount)
+    waitForTargetScale(appName, instanceCount)
  
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
@@ -247,7 +260,12 @@ def suspendCommand(suspendOptionsParser):
         return
     data=r.json()
     app=data['app']
-    scale(appName, 0)
+    instances = app['tasks']
+    currentInstances=len(instances)
+    for instance in instances:
+        killInstance(appName, instance, 5, True)
+        time.sleep(2)
+        currentInstances = currentInstances - 1
     waitForTargetScale(appName, 0)
  
 if __name__ == "__main__":
