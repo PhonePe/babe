@@ -118,7 +118,7 @@ def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and instance['healthCheckResults'][0]['alive'] == True
  
 def adminEndpoint(instance):
-    if 'ports' in instance and len(instance['ports']) == 2:
+    if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][1])
     return None
 
@@ -130,14 +130,14 @@ def getAppInfo(appName):
         return None
     return r
 
-def scale(appName, scale, force=False):
+def scale(appName, scale, lbOOR, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'})
     if 200 == r.status_code:
         print("App " + appName + " scaled to " + str(scale))
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, scale):
+def killInstance(appName, instance, grace, lbOOR, scale):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
@@ -150,6 +150,17 @@ def killInstance(appName, instance, grace, scale):
     else:
         print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
         return
+
+    if lbOOR:
+        loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+        print("Calling " + loadbalancer_oor_url)
+        oorResponse = requests.post(loadbalancer_oor_url)
+        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+            print("Node is oor on loadbalancer")
+        else:
+            print("Loadbalancer oor api returned: [" + str(
+                oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+ 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
@@ -181,6 +192,8 @@ def waitForTargetScale(appName, targetScale):
   
 def restartCommand(restartOptionsParser):
     appName = restartOptionsParser.app
+    grace = restartOptionsParser.grace
+    lbOOR = restartOptionsParser.lboor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -197,7 +210,7 @@ def restartCommand(restartOptionsParser):
         scale(appName, targetScale)
         waitForTargetScale(appName, targetScale)
     for instance in instances:
-        killInstance(appName, instance, restartOptionsParser.grace, False)
+        killInstance(appName, instance, grace, lbOOR, False)
         time.sleep(2)
         waitForTargetScale(appName, targetScale)
         print("Instance " + instance['id'] + " replaced")
@@ -230,6 +243,8 @@ def infoCommand(infoOptionsParser):
             
 def scaleCommand(scaleOptionsParser):
     appName = scaleOptionsParser.app
+    grace = scaleOptionsParser.grace
+    lbOOR = scaleOptionsParser.lboor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -245,7 +260,7 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, 35, True)
+        killInstance(appName, instance, grace, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
@@ -254,6 +269,8 @@ def scaleCommand(scaleOptionsParser):
  
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
+    grace = suspendOptionsParser.grace
+    lbOOR = suspendOptionsParser.lboor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -263,7 +280,7 @@ def suspendCommand(suspendOptionsParser):
     instances = app['tasks']
     currentInstances=len(instances)
     for instance in instances:
-        killInstance(appName, instance, 35, True)
+        killInstance(appName, instance, grace, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
     waitForTargetScale(appName, 0)
@@ -272,6 +289,7 @@ def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
     instanceId = killSingleAppConfig.instance
     grace = killSingleAppConfig.grace
+    lbOOR = killSingleAppConfig.lboor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -287,9 +305,10 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, True)
+    killInstance(appName, instance, grace, lbOOR, True)
     waitForTargetScale(appName, currentInstances - 1)
- 
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
     parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
@@ -317,24 +336,30 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('app', help='App name')
     restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
+    restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
-    restartOptionsParser = subparsers.add_parser('scale', help='Scale an app')
-    restartOptionsParser.add_argument('app', help='App name')
-    restartOptionsParser.add_argument('-n', '--instances', help='Number of instances required. This number is absolute.', type=int, required=True)
-    restartOptionsParser.set_defaults(func=scaleCommand)
+    scaleOptionsParser = subparsers.add_parser('scale', help='Scale an app')
+    scaleOptionsParser.add_argument('app', help='App name')
+    scaleOptionsParser.add_argument('-n', '--instances', help='Number of instances required. This number is absolute.', type=int, required=True)
+    scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
+    scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
     suspendOptionsParser = subparsers.add_parser('suspend', help='Suspend an app (equivalent to scale=0)')
     suspendOptionsParser.add_argument('app', help='App name')
+    suspendOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
+    suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
     killInstanceOptionsParser = subparsers.add_parser('kill', help='Kill an app instance')
     killInstanceOptionsParser.add_argument('app', help='App name')
-    killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
+    killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
+    killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
