@@ -245,7 +245,7 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, 5, True)
+        killInstance(appName, instance, 35, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
@@ -263,10 +263,32 @@ def suspendCommand(suspendOptionsParser):
     instances = app['tasks']
     currentInstances=len(instances)
     for instance in instances:
-        killInstance(appName, instance, 5, True)
+        killInstance(appName, instance, 35, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
     waitForTargetScale(appName, 0)
+
+def killSingleAppInstance(killSingleAppConfig):
+    appName = killSingleAppConfig.app
+    instanceId = killSingleAppConfig.instance
+    grace = killSingleAppConfig.grace
+    r = getAppInfo(appName)
+    if None == r:
+        print("Error: No such app:" + appName)
+        return
+    data=r.json()
+    app=data['app']
+    instances = app['tasks']
+    candidateInstance = None
+    for instance in instances:
+        if instance['id'] == instanceId:
+            candidateInstance = instance
+            break
+    if candidateInstance == None:
+        print("Error: Invalid instance ID: " + instanceId)
+    currentInstances=len(instances)
+    killInstance(appName, instance, grace, True)
+    waitForTargetScale(appName, currentInstances - 1)
  
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
@@ -293,7 +315,7 @@ if __name__ == "__main__":
     #Restart
     restartOptionsParser = subparsers.add_parser('restart', help='Restart an app')
     restartOptionsParser.add_argument('app', help='App name')
-    restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=5)
+    restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.set_defaults(func=restartCommand)
 
@@ -307,6 +329,13 @@ if __name__ == "__main__":
     suspendOptionsParser = subparsers.add_parser('suspend', help='Suspend an app (equivalent to scale=0)')
     suspendOptionsParser.add_argument('app', help='App name')
     suspendOptionsParser.set_defaults(func=suspendCommand)
+
+    #Kill Instance
+    killInstanceOptionsParser = subparsers.add_parser('kill', help='Kill an app instance')
+    killInstanceOptionsParser.add_argument('app', help='App name')
+    killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
+    killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
+    killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
     marathon=parsed.endpoint
