@@ -130,7 +130,7 @@ def getAppInfo(appName):
         return None
     return r
 
-def scale(appName, scale, lbOOR, force=False):
+def scale(appName, scale, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'})
     if 200 == r.status_code:
         print("App " + appName + " scaled to " + str(scale))
