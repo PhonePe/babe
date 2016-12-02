@@ -63,7 +63,7 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
             row.append(taskStats['staged'])
             row.append(colored("UP", 'green'))
         rows.append(row)
-    print tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid')
+    print(tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid'))
 
 def apps(aliveOnly, deadOnly):
     params = {'embed' : 'apps.taskStats'}
@@ -217,7 +217,7 @@ def restartCommand(restartOptionsParser):
     if restartOptionsParser.noScaling == False:
         scale(appName, targetScale - 1)
         waitForTargetScale(appName, targetScale - 1) 
-    print "App restarted"
+    print("App restarted")
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -233,12 +233,12 @@ def infoCommand(infoOptionsParser):
         rows = []
         for instance in app['tasks']:
             loadInstance(instance, rows) 
-        print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
+        print(tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid'))
         rows=[]
         for deployment in app['deployments']:
             rows.append([deployment['id']])
         if len(rows) > 0:
-            print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
+            print(tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid'))
         
             
 def scaleCommand(scaleOptionsParser):
