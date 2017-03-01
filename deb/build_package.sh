@@ -1,3 +1,3 @@
 #!/bin/bash
-cp ../babe babe/usr/bin/.
+cp ../babe babe/usr/share/.
 dpkg-deb --build babe
