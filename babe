@@ -18,16 +18,29 @@ import json
 import requests
 import os.path
 import time
+import getpass
 from tabulate import tabulate
 from termcolor import colored
+from requests.auth import HTTPBasicAuth
+import warnings
+
+# I personally don`t like doing this :)
+warnings.filterwarnings("ignore")
 
 marathon="localhost:8080"
 waitTime=10
+userAuth=False
+httpBasicCreds = None
+protocol = "http"
+httpsVerify = True
 
 def url(path):
-    return "http://" + marathon + path
+    return protocol + "://" + marathon + path
 
 def printApiError(r):
+    if r.status_code == 401:
+        print("Authentication error:: Check your username and password")
+        return
     error=json.loads(r.text)
     try:
         if 'details' in error:
@@ -67,7 +80,7 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
 
 def apps(aliveOnly, deadOnly):
     params = {'embed' : 'apps.taskStats'}
-    r = requests.get(url("/v2/apps"), params=params)
+    r = requests.get(url("/v2/apps"), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         printApiError(r)
         return
@@ -91,7 +104,7 @@ def deployCommand(deployOptionsParser):
         data=myfile.read()
     #requests.post(
     #print("Config: " + configFile)
-    r = requests.post(url("/v2/apps"), data = data, headers = {'content-type': 'application/json'})
+    r = requests.post(url("/v2/apps"), data = data, headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if r.status_code == 201:
         print("App deployment request accepted. Use list command to check")
     elif r.status_code == 409:
@@ -124,14 +137,14 @@ def adminEndpoint(instance):
 
 def getAppInfo(appName):
     params = {'embed' : ['apps.taskStats', 'apps.deployments']}
-    r = requests.get(url("/v2/apps/" + appName), params=params)
+    r = requests.get(url("/v2/apps/" + appName), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         printApiError(r)
         return None
     return r
 
 def scale(appName, scale, force=False):
-    r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'})
+    r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == r.status_code:
         print("App " + appName + " scaled to " + str(scale))
     else:
@@ -144,7 +157,7 @@ def killInstance(appName, instance, grace, lbOOR, scale):
         return
     oorUrl=endpoint + "/tasks/ranger-oor"
     print("Calling " + oorUrl)
-    oorResponse=requests.post(oorUrl)
+    oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
         print("Took node oor on ranger")
     else:
@@ -154,7 +167,7 @@ def killInstance(appName, instance, grace, lbOOR, scale):
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
-        oorResponse = requests.post(loadbalancer_oor_url)
+        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
             print("Node is oor on loadbalancer")
         else:
@@ -164,7 +177,7 @@ def killInstance(appName, instance, grace, lbOOR, scale):
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
-    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params)
+    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == killResponse.status_code:
         print("Killed " + instance['id'])
     else:
@@ -308,10 +321,16 @@ def killSingleAppInstance(killSingleAppConfig):
     killInstance(appName, instance, grace, lbOOR, True)
     waitForTargetScale(appName, currentInstances - 1)
 
+def getUserPassword():
+    password = getpass.getpass(prompt='Password: ', stream=None)
+    return password
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
     parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
+    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint ( http / https )', default="http", required=True)
+    parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
+    parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
 
     subparsers = parser.add_subparsers(help='Available operations')
 
@@ -364,5 +383,10 @@ if __name__ == "__main__":
 
     parsed=parser.parse_args()
     marathon=parsed.endpoint
-
+    useAuth = len(parsed.user) > 0
+    if useAuth == True:
+        password = getUserPassword()
+        httpBasicCreds = HTTPBasicAuth(parsed.user, password)
+    httpsVerify = parsed.sslVerify
+    protocol = parsed.protocol
     parsed.func(parsed)
