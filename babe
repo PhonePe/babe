@@ -261,6 +261,7 @@ def scaleCommand(scaleOptionsParser):
     appName = scaleOptionsParser.app
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -276,7 +277,7 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, grace, True, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
