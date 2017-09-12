@@ -129,7 +129,7 @@ def loadInstance(instance, rows):
 
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and instance['healthCheckResults'][0]['alive'] == True
- 
+
 def adminEndpoint(instance):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][1])
@@ -150,19 +150,21 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, lbOOR, scale):
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
     oorUrl=endpoint + "/tasks/ranger-oor"
     print("Calling " + oorUrl)
-    oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
-    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-        print("Took node oor on ranger")
-    else:
-        print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-        return
+
+    if rangerOOR:
+        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+            print("Took node oor on ranger")
+        else:
+            print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+            return
 
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
@@ -173,7 +175,7 @@ def killInstance(appName, instance, grace, lbOOR, scale):
         else:
             print("Loadbalancer oor api returned: [" + str(
                 oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
- 
+
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
@@ -202,11 +204,12 @@ def waitForTargetScale(appName, targetScale):
         else:
             print("Current scale factor: " + str(healthy) + " Target: " + str(targetScale))
         time.sleep(3)
-  
+
 def restartCommand(restartOptionsParser):
     appName = restartOptionsParser.app
     grace = restartOptionsParser.grace
     lbOOR = restartOptionsParser.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -223,13 +226,13 @@ def restartCommand(restartOptionsParser):
         scale(appName, targetScale)
         waitForTargetScale(appName, targetScale)
     for instance in instances:
-        killInstance(appName, instance, grace, lbOOR, False)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
         time.sleep(2)
         waitForTargetScale(appName, targetScale)
         print("Instance " + instance['id'] + " replaced")
     if restartOptionsParser.noScaling == False:
         scale(appName, targetScale - 1)
-        waitForTargetScale(appName, targetScale - 1) 
+        waitForTargetScale(appName, targetScale - 1)
     print "App restarted"
 
 def infoCommand(infoOptionsParser):
@@ -245,19 +248,20 @@ def infoCommand(infoOptionsParser):
     else:
         rows = []
         for instance in app['tasks']:
-            loadInstance(instance, rows) 
+            loadInstance(instance, rows)
         print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
         rows=[]
         for deployment in app['deployments']:
             rows.append([deployment['id']])
         if len(rows) > 0:
             print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
-        
-            
+
+
 def scaleCommand(scaleOptionsParser):
     appName = scaleOptionsParser.app
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -273,17 +277,18 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, grace, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
     scale(appName, instanceCount)
     waitForTargetScale(appName, instanceCount)
- 
+
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
     grace = suspendOptionsParser.grace
     lbOOR = suspendOptionsParser.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -293,7 +298,7 @@ def suspendCommand(suspendOptionsParser):
     instances = app['tasks']
     currentInstances=len(instances)
     for instance in instances:
-        killInstance(appName, instance, grace, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
     waitForTargetScale(appName, 0)
@@ -303,6 +308,7 @@ def killSingleAppInstance(killSingleAppConfig):
     instanceId = killSingleAppConfig.instance
     grace = killSingleAppConfig.grace
     lbOOR = killSingleAppConfig.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -318,7 +324,7 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, lbOOR, True)
+    killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
     waitForTargetScale(appName, currentInstances - 1)
 
 def getUserPassword():
@@ -356,6 +362,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -371,6 +378,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('app', help='App name')
     suspendOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
@@ -379,6 +387,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
