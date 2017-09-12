@@ -362,7 +362,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
+    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -371,6 +371,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-n', '--instances', help='Number of instances required. This number is absolute.', type=int, required=True)
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
@@ -378,7 +379,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('app', help='App name')
     suspendOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
+    suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
@@ -387,7 +388,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_true')
+    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
