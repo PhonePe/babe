@@ -261,7 +261,7 @@ def scaleCommand(scaleOptionsParser):
     appName = scaleOptionsParser.app
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
-    rangerOOR = restartOptionsParser.rangeroor
+    rangerOOR = scaleOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -288,7 +288,7 @@ def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
     grace = suspendOptionsParser.grace
     lbOOR = suspendOptionsParser.lboor
-    rangerOOR = restartOptionsParser.rangeroor
+    rangerOOR = suspendOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -308,7 +308,7 @@ def killSingleAppInstance(killSingleAppConfig):
     instanceId = killSingleAppConfig.instance
     grace = killSingleAppConfig.grace
     lbOOR = killSingleAppConfig.lboor
-    rangerOOR = restartOptionsParser.rangeroor
+    rangerOOR = killSingleAppConfig.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
