@@ -279,11 +279,13 @@ def suspendCommand(suspendOptionsParser):
     app=data['app']
     instances = app['tasks']
     currentInstances=len(instances)
-    for instance in instances:
-        killInstance(appName, instance, grace, lbOOR, True)
-        time.sleep(2)
-        currentInstances = currentInstances - 1
-    waitForTargetScale(appName, 0)
+    keyboard_response = input("Commencing suspend operation.... Are you sure [y/n]? ")
+    if keyboard_response == 'y':
+        for instance in instances:
+            killInstance(appName, instance, grace, lbOOR, True)
+            time.sleep(2)
+            currentInstances = currentInstances - 1
+        waitForTargetScale(appName, 0)
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
