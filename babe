@@ -18,16 +18,29 @@ import json
 import requests
 import os.path
 import time
+import getpass
 from tabulate import tabulate
 from termcolor import colored
+from requests.auth import HTTPBasicAuth
+import warnings
+
+# I personally don`t like doing this :)
+warnings.filterwarnings("ignore")
 
 marathon="localhost:8080"
 waitTime=10
+userAuth=False
+httpBasicCreds = None
+protocol = "http"
+httpsVerify = True
 
 def url(path):
-    return "http://" + marathon + path
+    return protocol + "://" + marathon + path
 
 def printApiError(r):
+    if r.status_code == 401:
+        print("Authentication error:: Check your username and password")
+        return
     error=json.loads(r.text)
     try:
         if 'details' in error:
@@ -67,7 +80,7 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
 
 def apps(aliveOnly, deadOnly):
     params = {'embed' : 'apps.taskStats'}
-    r = requests.get(url("/v2/apps"), params=params)
+    r = requests.get(url("/v2/apps"), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         printApiError(r)
         return
@@ -91,7 +104,7 @@ def deployCommand(deployOptionsParser):
         data=myfile.read()
     #requests.post(
     #print("Config: " + configFile)
-    r = requests.post(url("/v2/apps"), data = data, headers = {'content-type': 'application/json'})
+    r = requests.post(url("/v2/apps"), data = data, headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if r.status_code == 201:
         print("App deployment request accepted. Use list command to check")
     elif r.status_code == 409:
@@ -116,7 +129,7 @@ def loadInstance(instance, rows):
 
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and instance['healthCheckResults'][0]['alive'] == True
- 
+
 def adminEndpoint(instance):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][1])
@@ -124,47 +137,49 @@ def adminEndpoint(instance):
 
 def getAppInfo(appName):
     params = {'embed' : ['apps.taskStats', 'apps.deployments']}
-    r = requests.get(url("/v2/apps/" + appName), params=params)
+    r = requests.get(url("/v2/apps/" + appName), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         printApiError(r)
         return None
     return r
 
 def scale(appName, scale, force=False):
-    r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'})
+    r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == r.status_code:
         print("App " + appName + " scaled to " + str(scale))
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, lbOOR, scale):
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
     oorUrl=endpoint + "/tasks/ranger-oor"
     print("Calling " + oorUrl)
-    oorResponse=requests.post(oorUrl)
-    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-        print("Took node oor on ranger")
-    else:
-        print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-        return
+
+    if rangerOOR:
+        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+            print("Took node oor on ranger")
+        else:
+            print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+            return
 
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
-        oorResponse = requests.post(loadbalancer_oor_url)
+        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
             print("Node is oor on loadbalancer")
         else:
             print("Loadbalancer oor api returned: [" + str(
                 oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
- 
+
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
-    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params)
+    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == killResponse.status_code:
         print("Killed " + instance['id'])
     else:
@@ -189,11 +204,12 @@ def waitForTargetScale(appName, targetScale):
         else:
             print("Current scale factor: " + str(healthy) + " Target: " + str(targetScale))
         time.sleep(3)
-  
+
 def restartCommand(restartOptionsParser):
     appName = restartOptionsParser.app
     grace = restartOptionsParser.grace
     lbOOR = restartOptionsParser.lboor
+    rangerOOR = restartOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -210,14 +226,14 @@ def restartCommand(restartOptionsParser):
         scale(appName, targetScale)
         waitForTargetScale(appName, targetScale)
     for instance in instances:
-        killInstance(appName, instance, grace, lbOOR, False)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
         time.sleep(2)
         waitForTargetScale(appName, targetScale)
         print("Instance " + instance['id'] + " replaced")
     if restartOptionsParser.noScaling == False:
         scale(appName, targetScale - 1)
-        waitForTargetScale(appName, targetScale - 1) 
-    print("App restarted")
+        waitForTargetScale(appName, targetScale - 1)
+    print "App restarted"
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -232,19 +248,20 @@ def infoCommand(infoOptionsParser):
     else:
         rows = []
         for instance in app['tasks']:
-            loadInstance(instance, rows) 
-        print(tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid'))
+            loadInstance(instance, rows)
+        print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
         rows=[]
         for deployment in app['deployments']:
             rows.append([deployment['id']])
         if len(rows) > 0:
-            print(tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid'))
-        
-            
+            print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
+
+
 def scaleCommand(scaleOptionsParser):
     appName = scaleOptionsParser.app
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
+    rangerOOR = scaleOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -260,17 +277,18 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, grace, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
     scale(appName, instanceCount)
     waitForTargetScale(appName, instanceCount)
- 
+
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
     grace = suspendOptionsParser.grace
     lbOOR = suspendOptionsParser.lboor
+    rangerOOR = suspendOptionsParser.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -280,7 +298,7 @@ def suspendCommand(suspendOptionsParser):
     instances = app['tasks']
     currentInstances=len(instances)
     for instance in instances:
-        killInstance(appName, instance, grace, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
         time.sleep(2)
         currentInstances = currentInstances - 1
     waitForTargetScale(appName, 0)
@@ -290,6 +308,7 @@ def killSingleAppInstance(killSingleAppConfig):
     instanceId = killSingleAppConfig.instance
     grace = killSingleAppConfig.grace
     lbOOR = killSingleAppConfig.lboor
+    rangerOOR = killSingleAppConfig.rangeroor
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -305,13 +324,19 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, lbOOR, True)
+    killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
     waitForTargetScale(appName, currentInstances - 1)
 
+def getUserPassword():
+    password = getpass.getpass(prompt='Password: ', stream=None)
+    return password
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
     parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
+    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint ( http / https )', default="http", required=True)
+    parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
+    parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
 
     subparsers = parser.add_subparsers(help='Available operations')
 
@@ -337,6 +362,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=30)
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -345,6 +371,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-n', '--instances', help='Number of instances required. This number is absolute.', type=int, required=True)
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
@@ -352,6 +379,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('app', help='App name')
     suspendOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
@@ -360,9 +388,15 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
+    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
     marathon=parsed.endpoint
-
+    useAuth = len(parsed.user) > 0
+    if useAuth == True:
+        password = getUserPassword()
+        httpBasicCreds = HTTPBasicAuth(parsed.user, password)
+    httpsVerify = parsed.sslVerify
+    protocol = parsed.protocol
     parsed.func(parsed)
