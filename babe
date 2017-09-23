@@ -233,7 +233,7 @@ def restartCommand(restartOptionsParser):
     if restartOptionsParser.noScaling == False:
         scale(appName, targetScale - 1)
         waitForTargetScale(appName, targetScale - 1)
-    print "App restarted"
+    print("App restarted")
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -249,12 +249,12 @@ def infoCommand(infoOptionsParser):
         rows = []
         for instance in app['tasks']:
             loadInstance(instance, rows)
-        print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
+        print(tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid'))
         rows=[]
         for deployment in app['deployments']:
             rows.append([deployment['id']])
         if len(rows) > 0:
-            print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
+            print(tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid'))
 
 
 def scaleCommand(scaleOptionsParser):
@@ -297,13 +297,6 @@ def suspendCommand(suspendOptionsParser):
     app=data['app']
     instances = app['tasks']
     currentInstances=len(instances)
-<<<<<<< HEAD
-    for instance in instances:
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
-        time.sleep(2)
-        currentInstances = currentInstances - 1
-    waitForTargetScale(appName, 0)
-=======
     keyboard_response = input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
         for instance in instances:
@@ -311,7 +304,6 @@ def suspendCommand(suspendOptionsParser):
             time.sleep(2)
             currentInstances = currentInstances - 1
         waitForTargetScale(appName, 0)
->>>>>>> prompt
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
