@@ -300,7 +300,7 @@ def suspendCommand(suspendOptionsParser):
     keyboard_response = input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
         for instance in instances:
-            killInstance(appName, instance, grace, lbOOR, True)
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
             time.sleep(2)
             currentInstances = currentInstances - 1
         waitForTargetScale(appName, 0)
@@ -336,7 +336,7 @@ def getUserPassword():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
     parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
-    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint ( http / https )', default="http", required=True)
+    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint', choices=['http','https'], default="http")
     parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
     parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
 
