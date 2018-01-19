@@ -76,7 +76,7 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
             row.append(taskStats['staged'])
             row.append(colored("UP", 'green'))
         rows.append(row)
-    print tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid')
+    print(tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid'))
 
 def apps(aliveOnly, deadOnly):
     params = {'embed' : 'apps.taskStats'}
@@ -233,7 +233,7 @@ def restartCommand(restartOptionsParser):
     if restartOptionsParser.noScaling == False:
         scale(appName, targetScale - 1)
         waitForTargetScale(appName, targetScale - 1)
-    print "App restarted"
+    print("App restarted")
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -249,12 +249,12 @@ def infoCommand(infoOptionsParser):
         rows = []
         for instance in app['tasks']:
             loadInstance(instance, rows)
-        print tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid')
+        print(tabulate(rows, headers=["Instance", "host", "Ports", "Started", "Status"], tablefmt='fancy_grid'))
         rows=[]
         for deployment in app['deployments']:
             rows.append([deployment['id']])
         if len(rows) > 0:
-            print tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid')
+            print(tabulate(rows, headers=["Deployment ID"], tablefmt='fancy_grid'))
 
 
 def scaleCommand(scaleOptionsParser):
@@ -297,11 +297,13 @@ def suspendCommand(suspendOptionsParser):
     app=data['app']
     instances = app['tasks']
     currentInstances=len(instances)
-    for instance in instances:
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
-        time.sleep(2)
-        currentInstances = currentInstances - 1
-    waitForTargetScale(appName, 0)
+    keyboard_response = input("Commencing suspend operation.... Are you sure [y/n]? ")
+    if keyboard_response == 'y':
+        for instance in instances:
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+            time.sleep(2)
+            currentInstances = currentInstances - 1
+        waitForTargetScale(appName, 0)
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
@@ -334,7 +336,7 @@ def getUserPassword():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
     parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
-    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint ( http / https )', default="http", required=True)
+    parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint', choices=['http','https'], default="http")
     parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
     parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
 
@@ -388,7 +390,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to skip taking instance OOR in ranger', dest='rangeroor', action='store_false')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
