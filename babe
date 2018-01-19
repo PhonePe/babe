@@ -390,7 +390,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-i', '--instance', help='Instance ID to be killed', required=True)
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to skip taking instance OOR in ranger', dest='rangeroor', action='store_false')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     parsed=parser.parse_args()
