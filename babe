@@ -34,8 +34,18 @@ httpBasicCreds = None
 protocol = "http"
 httpsVerify = True
 
+def get_leader_url(path):
+    cur_url = protocol + "://" + marathon + "/v2/leader"
+    l_res = requests.get(cur_url) 
+    if l_res.status_code == 200:
+        l_data = l_res.json()
+        return protocol + "://" + l_data['leader'] + path
+    else:
+        print("Returning seeded marathon endpoint since leader call gave status : " + l_res.status_code)
+        return protocol + "://" + marathon + path    
+
 def url(path):
-    return protocol + "://" + marathon + path
+    return get_leader_url(path)
 
 def printApiError(r):
     if r.status_code == 401:
