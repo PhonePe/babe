@@ -23,6 +23,7 @@ from tabulate import tabulate
 from termcolor import colored
 from requests.auth import HTTPBasicAuth
 import warnings
+from datetime import datetime
 
 # I personally don`t like doing this :)
 warnings.filterwarnings("ignore")
@@ -128,7 +129,7 @@ def loadInstance(instance, rows):
     rows.append(row)
 
 def isInstanceHealthy(instance):
-    return 'healthCheckResults' in instance and instance['healthCheckResults'][0]['alive'] == True
+    return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
 def adminEndpoint(instance):
     if 'ports' in instance and len(instance['ports']) >= 2:
@@ -159,7 +160,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     print("Calling " + oorUrl)
 
     if rangerOOR:
-        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
             print("Took node oor on ranger")
         else:
@@ -169,7 +170,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
-        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
             print("Node is oor on loadbalancer")
         else:
@@ -216,6 +217,7 @@ def restartCommand(restartOptionsParser):
         return
     data=r.json()
     app=data['app']
+    sortInstancesByStagingTime(app)
     instances = app['tasks']
     if 0 == len(instances):
         print("There are no running instances. Use 'scale' to scale up")
@@ -242,6 +244,7 @@ def infoCommand(infoOptionsParser):
         return
     data=r.json()
     app=data['app']
+    sortInstancesByStagingTime(app)
     printInfoTable([app])
     if not 'taskStats' in app or not 'totalSummary' in app['taskStats']:
         print("App is down")
@@ -268,6 +271,7 @@ def scaleCommand(scaleOptionsParser):
         return
     data=r.json()
     app=data['app']
+    sortInstancesByStagingTime(app)
     instances = app['tasks']
     instanceCount=scaleOptionsParser.instances
     currentInstances=len(instances)
@@ -295,6 +299,7 @@ def suspendCommand(suspendOptionsParser):
         return
     data=r.json()
     app=data['app']
+    sortInstancesByStagingTime(app)
     instances = app['tasks']
     currentInstances=len(instances)
     for instance in instances:
@@ -330,6 +335,9 @@ def killSingleAppInstance(killSingleAppConfig):
 def getUserPassword():
     password = getpass.getpass(prompt='Password: ', stream=None)
     return password
+
+def sortInstancesByStagingTime(app):
+    app['tasks'].sort(key=lambda x: int(time.mktime(datetime.strptime(x['stagedAt'], '%Y-%m-%dT%H:%M:%S.%fZ').timetuple()) * 1000))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
