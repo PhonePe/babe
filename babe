@@ -296,8 +296,8 @@ def suspendCommand(suspendOptionsParser):
     data=r.json()
     app=data['app']
     instances = app['tasks']
-    currentInstances=len(instances)
-    keyboard_response = input("Commencing suspend operation.... Are you sure [y/n]? ")
+    currentInstances = len(instances)
+    keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
         for instance in instances:
             killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
