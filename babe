@@ -185,6 +185,13 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
+def destroyApp(appName):
+    r = requests.delete(url("/v2/apps/" + appName), auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == r.status_code:
+        print("App " + appName + " destroyed")
+    else:
+        printApiError(r)
+
 def waitForTargetScale(appName, targetScale):
     while True:
         r = getAppInfo(appName)
@@ -289,6 +296,7 @@ def suspendCommand(suspendOptionsParser):
     grace = suspendOptionsParser.grace
     lbOOR = suspendOptionsParser.lboor
     rangerOOR = suspendOptionsParser.rangeroor
+    destroy = suspendOptionsParser.destroy
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -304,6 +312,9 @@ def suspendCommand(suspendOptionsParser):
             time.sleep(2)
             currentInstances = currentInstances - 1
         waitForTargetScale(appName, 0)
+        if destroy:
+            destroyApp(appName)
+
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
@@ -382,6 +393,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
@@ -402,3 +414,4 @@ if __name__ == "__main__":
     httpsVerify = parsed.sslVerify
     protocol = parsed.protocol
     parsed.func(parsed)
+
