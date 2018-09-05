@@ -185,12 +185,21 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
-def destroyApp(appName):
-    r = requests.delete(url("/v2/apps/" + appName), auth=httpBasicCreds, verify=httpsVerify)
-    if 200 == r.status_code:
-        print("App " + appName + " destroyed")
+def destroyApp(appName, force=False):
+    if not force:
+        prompt_response = raw_input("Do you really want to destroy the app {0} [y/n]? ".format(appName))
+    if force or prompt_response == 'y':
+        r = requests.delete(url("/v2/apps/" + appName), auth=httpBasicCreds, verify=httpsVerify)
+        if 200 == r.status_code:
+            print("App " + appName + " destroyed")
+        else:
+            printApiError(r)
     else:
-        printApiError(r)
+        print("Not destroying app {0}".format(appName))
+
+def destroyCommand(destroyAppOptionsParser):
+    appName = destroyAppOptionsParser.app
+    destroyApp(appName)
 
 def waitForTargetScale(appName, targetScale):
     while True:
@@ -313,7 +322,7 @@ def suspendCommand(suspendOptionsParser):
             currentInstances = currentInstances - 1
         waitForTargetScale(appName, 0)
         if destroy:
-            destroyApp(appName)
+            destroyApp(appName, force=True)
 
 
 def killSingleAppInstance(killSingleAppConfig):
@@ -404,6 +413,11 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to skip taking instance OOR in ranger', dest='rangeroor', action='store_false')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
+
+    #Destroy App
+    destroyAppOptionsParser = subparsers.add_parser('destroy', help='Destroy an app instance')
+    destroyAppOptionsParser.add_argument('app', help='App name')
+    destroyAppOptionsParser.set_defaults(func=destroyCommand)
 
     parsed=parser.parse_args()
     marathon=parsed.endpoint
