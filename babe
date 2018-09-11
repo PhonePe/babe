@@ -22,6 +22,7 @@ import getpass
 from tabulate import tabulate
 from termcolor import colored
 from requests.auth import HTTPBasicAuth
+import tqdm
 import warnings
 
 # I personally don`t like doing this :)
@@ -36,6 +37,9 @@ httpsVerify = True
 
 def url(path):
     return protocol + "://" + marathon + path
+
+def endpoint_url(endpoint, path):
+    return protocol + "://" + endpoint + path
 
 def printApiError(r):
     if r.status_code == 401:
@@ -150,20 +154,23 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, verbose=True):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
     oorUrl=endpoint + "/tasks/ranger-oor"
-    print("Calling " + oorUrl)
+    if verbose:
+        print("Calling " + oorUrl)
 
     if rangerOOR:
         oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            print("Took node oor on ranger")
+            if verbose:
+                print("Took node oor on ranger")
         else:
-            print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+            if verbose:
+                print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
             return
 
     if lbOOR:
@@ -171,19 +178,24 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
         print("Calling " + loadbalancer_oor_url)
         oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
         if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            print("Node is oor on loadbalancer")
+            if verbose:
+                print("Node is oor on loadbalancer")
         else:
-            print("Loadbalancer oor api returned: [" + str(
-                oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+            if verbose:
+                print("Loadbalancer oor api returned: [" + str(
+                    oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
 
-    print("Waiting for grace period: " + str(grace) + " Second(s)")
+    if verbose:
+        print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
     killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == killResponse.status_code:
-        print("Killed " + instance['id'])
+        if verbose:
+            print("Killed " + instance['id'])
     else:
-        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
+        if verbose:
+            print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 def destroyApp(appName, force=False):
     if not force:
@@ -200,6 +212,45 @@ def destroyApp(appName, force=False):
 def destroyCommand(destroyAppOptionsParser):
     appName = destroyAppOptionsParser.app
     destroyApp(appName)
+
+def listTasks(appName):
+    r = requests.get(url("/v2/apps") + appName + "/tasks", auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == r.status_code:
+        return r.json()['tasks']
+    else:
+        print("No tasks found for app {0}".format(appName))
+        return []
+
+def getMesosSlaveId(mesosMasterEndpoint, hostname):
+    r = requests.get(endpoint_url(mesosMasterEndpoint, '/slaves'), auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == r.status_code:
+        slaves = [slave['id'] for slave in r.json()['slaves'] if slave['hostname'] == hostname and slave['active'] == True]
+        if not slaves:
+            print("No matching active mesos slave with hostname {0}".format(hostname))
+            return
+        elif len(slaves) > 1:
+            print("Multiple active mesos slaves with hostname {0}".format(hostname))
+            return
+        else:
+            return slaves[0]
+
+def decommission(mesosMasterEndpoint, hostname):
+    slaveId = getMesosSlaveId(mesosMasterEndpoint, hostname)
+    if not slaveId:
+        print("Cannot resolve slaveId for hostname {0}".format(hostname))
+        return
+    prompt_response = raw_input("Do you really want to decommission node with hostname = {0}, slaveId = {1} [y/n]? ".format(hostname, slaveId))
+    if prompt_response == 'y':
+        r = requests.get(url("/v2/apps"), auth=httpBasicCreds, verify=httpsVerify)
+        if 200 == r.status_code:
+            print("Fetching list of tasks that need to be killed....")
+            tasks = sum([[{'appName': app['id'], 'taskId': task['id']} for task in listTasks(app['id']) if task['slaveId'] == slaveId] for app in r.json()['apps'] if app['instances'] > 1], [])
+            for task in tqdm.tqdm(tasks):
+                print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+                killInstance(appName=task['appName'], instance=task['taskId'], grace=30, rangerOOR=True, lbOOR=True, scale=False, verbose=False)
+
+def decommissionCommand(decommissionClusterOptionsParser):
+    decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
 
 def waitForTargetScale(appName, targetScale):
     while True:
@@ -355,7 +406,7 @@ def getUserPassword():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Marathon apps manager. Named after main character in Marathon Man.')
-    parser.add_argument('-e', '--endpoint', help='Marathon host/port', default="localhost:8080", required=True)
+    parser.add_argument('-e', '--endpoint', help='Marathon host:port', default="localhost:8080", required=True)
     parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint', choices=['http','https'], default="http")
     parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
     parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
@@ -419,6 +470,12 @@ if __name__ == "__main__":
     destroyAppOptionsParser.add_argument('app', help='App name')
     destroyAppOptionsParser.set_defaults(func=destroyCommand)
 
+    #Decommission Cluster
+    decommissionClusterOptionsParser = subparsers.add_parser('decommission', help='Decommission a Mesos slave')
+    decommissionClusterOptionsParser.add_argument('-m', '--mesos-endpoint', help='Mesos master host:port', default='localhost:5050', dest='mesos_endpoint', required=True)
+    decommissionClusterOptionsParser.add_argument('-n', '--hostname', help='Hostname of Mesos slave that needs to be decommissioned', default='localhost', required=True)
+    decommissionClusterOptionsParser.set_defaults(func=decommissionCommand)
+
     parsed=parser.parse_args()
     marathon=parsed.endpoint
     useAuth = len(parsed.user) > 0
@@ -428,4 +485,3 @@ if __name__ == "__main__":
     httpsVerify = parsed.sslVerify
     protocol = parsed.protocol
     parsed.func(parsed)
-
