@@ -22,8 +22,10 @@ import getpass
 from tabulate import tabulate
 from termcolor import colored
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import ConnectionError, HTTPError
 import tqdm
 import warnings
+import traceback
 
 # I personally don`t like doing this :)
 warnings.filterwarnings("ignore")
@@ -154,48 +156,51 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, verbose=True):
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
-    oorUrl=endpoint + "/tasks/ranger-oor"
-    if verbose:
-        print("Calling " + oorUrl)
 
     if rangerOOR:
-        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
-        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            if verbose:
+        oorUrl=endpoint + "/tasks/ranger-oor"
+        print("Calling " + oorUrl)
+        try:
+            oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
                 print("Took node oor on ranger")
-        else:
-            if verbose:
-                print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-            return
+            elif 404 == oorResponse.status_code:
+                print("Ranger OOR api returned 404")
+            else:
+                print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                return
+        except ConnectionError:
+            pass
 
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        print("Calling " + loadbalancer_oor_url)
-        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
-        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            if verbose:
+        if verbose:
+            print("Calling " + loadbalancer_oor_url)
+        try:
+            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
                 print("Node is oor on loadbalancer")
-        else:
-            if verbose:
-                print("Loadbalancer oor api returned: [" + str(
+            elif 404 == oorResponse.status_code:
+                print("Ranger OOR api returned 404")
+            else:
+                print("Loadbalancer OOR api returned: [" + str(
                     oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+        except ConnectionError:
+            pass
 
-    if verbose:
-        print("Waiting for grace period: " + str(grace) + " Second(s)")
+    print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
     params={'scale' : scale}
     killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == killResponse.status_code:
-        if verbose:
-            print("Killed " + instance['id'])
+        print("Killed " + instance['id'])
     else:
-        if verbose:
-            print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
+        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 def destroyApp(appName, force=False):
     if not force:
@@ -213,14 +218,6 @@ def destroyCommand(destroyAppOptionsParser):
     appName = destroyAppOptionsParser.app
     destroyApp(appName)
 
-def listTasks(appName):
-    r = requests.get(url("/v2/apps") + appName + "/tasks", auth=httpBasicCreds, verify=httpsVerify)
-    if 200 == r.status_code:
-        return r.json()['tasks']
-    else:
-        print("No tasks found for app {0}".format(appName))
-        return []
-
 def getMesosSlaveId(mesosMasterEndpoint, hostname):
     r = requests.get(endpoint_url(mesosMasterEndpoint, '/slaves'), auth=httpBasicCreds, verify=httpsVerify)
     if 200 == r.status_code:
@@ -234,6 +231,21 @@ def getMesosSlaveId(mesosMasterEndpoint, hostname):
         else:
             return slaves[0]
 
+def getAppInstances(appName):
+    r = getAppInfo(appName)
+    if None == r:
+        print("No app: " + appName)
+        return
+    data=r.json()
+    app=data['app']
+    instances = app['tasks']
+    return instances
+
+def getTaskInstance(task, filter):
+    appInstances = getAppInstances(task['appId'])
+    if filter(appInstances):
+        return {'appName': task['appId'], 'taskId': task['id'], 'instance': task}
+
 def decommission(mesosMasterEndpoint, hostname):
     slaveId = getMesosSlaveId(mesosMasterEndpoint, hostname)
     if not slaveId:
@@ -241,13 +253,23 @@ def decommission(mesosMasterEndpoint, hostname):
         return
     prompt_response = raw_input("Do you really want to decommission node with hostname = {0}, slaveId = {1} [y/n]? ".format(hostname, slaveId))
     if prompt_response == 'y':
-        r = requests.get(url("/v2/apps"), auth=httpBasicCreds, verify=httpsVerify)
+        r = requests.get(url("/v2/tasks"), auth=httpBasicCreds, verify=httpsVerify)
         if 200 == r.status_code:
             print("Fetching list of tasks that need to be killed....")
-            tasks = sum([[{'appName': app['id'], 'taskId': task['id']} for task in listTasks(app['id']) if task['slaveId'] == slaveId] for app in r.json()['apps'] if app['instances'] > 1], [])
+            tasks = [getTaskInstance(task, lambda l: len(l) > 1) for task in r.json()['tasks'] if task['slaveId'] == slaveId]
+            tasks = [task for task in tasks if task is not None]
+            failures = []
             for task in tqdm.tqdm(tasks):
                 print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
-                killInstance(appName=task['appName'], instance=task['taskId'], grace=30, rangerOOR=True, lbOOR=True, scale=False, verbose=False)
+                try:
+                    killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=False)
+                except KeyboardInterrupt:
+                    print("Received <CTRL-C> stopping everything")
+                    exit(1)
+                except:
+                    print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+                    print(traceback.format_exc())
+                    failures.append({'appName': task['appName'], 'taskId': task['taskId']})
 
 def decommissionCommand(decommissionClusterOptionsParser):
     decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
@@ -257,7 +279,7 @@ def waitForTargetScale(appName, targetScale):
         r = getAppInfo(appName)
         if None == r:
             print("No app: " + appName)
-            exit
+            exit(1)
         data=r.json()
         app=data['app']
         instances = app['tasks']
