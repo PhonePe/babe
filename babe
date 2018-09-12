@@ -262,35 +262,35 @@ def decommission(mesosMasterEndpoint, hostname):
         print("Not going to decommission")
         return
     r = requests.get(url("/v2/tasks"), auth=httpBasicCreds, verify=httpsVerify)
-    if 200 == r.status_code:
-        print("Fetching list of tasks that need to be killed....")
-        tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
-        candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
-        skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
-        candidate_tasks = [task for task in candidate_tasks if task is not None]
-        skipped_tasks = [task for task in skipped_tasks if task is not None]
-        failures = []
-        if skipped_tasks:
-            print("Skipping suspend of following apps because they are running with only one instance \n{0}"
-                .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
-            print("Scale them up before proceeding.... Exiting")
-            exit(1)
-        for task in tqdm.tqdm(candidate_tasks):
-            print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
-            try:
-                killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True)
-            except KeyboardInterrupt:
-                print("Received <CTRL-C> stopping everything")
-                exit(1)
-            except:
-                print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
-                print(traceback.format_exc())
-                exit(1)
-                #failures.append({'appName': task['appName'], 'taskId': task['taskId']})
-        if failures:
-            print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
-    else:
+    if 200 != r.status_code:
         print("Tasks API errored out - returned: [" + str(r.status_code) + "] " + r.text)
+
+    print("Fetching list of tasks that need to be killed....")
+    tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
+    candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
+    skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
+    candidate_tasks = [task for task in candidate_tasks if task is not None]
+    skipped_tasks = [task for task in skipped_tasks if task is not None]
+    failures = []
+    if skipped_tasks:
+        print("Skipping suspend of following apps because they are running with only one instance \n{0}"
+            .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
+        print("Cannot proceed further unless these apps are scaled up.... Exiting")
+        exit(1)
+    for task in tqdm.tqdm(candidate_tasks):
+        print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+        try:
+            killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True)
+        except KeyboardInterrupt:
+            print("Received <CTRL-C> stopping everything")
+            exit(1)
+        except:
+            print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+            print(traceback.format_exc())
+            exit(1)
+            #failures.append({'appName': task['appName'], 'taskId': task['taskId']})
+    if failures:
+        print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
