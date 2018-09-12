@@ -264,7 +264,7 @@ def decommission(mesosMasterEndpoint, hostname):
     r = requests.get(url("/v2/tasks"), auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         print("Tasks API errored out - returned: [" + str(r.status_code) + "] " + r.text)
-
+        return
     print("Fetching list of tasks that need to be killed....")
     tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
     candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
