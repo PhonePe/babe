@@ -43,6 +43,9 @@ def url(path):
 def endpoint_url(endpoint, path):
     return protocol + "://" + endpoint + path
 
+def mesos_master_endpoint():
+    return marathon.split(':')[0] + ':' + "5050"
+
 def printApiError(r):
     if r.status_code == 401:
         print("Authentication error:: Check your username and password")
@@ -175,12 +178,12 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
                 print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
                 return
         except ConnectionError:
+            print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
     if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        if verbose:
-            print("Calling " + loadbalancer_oor_url)
+        print("Calling " + loadbalancer_oor_url)
         try:
             oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
             if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
@@ -191,6 +194,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
                 print("Loadbalancer OOR api returned: [" + str(
                     oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
         except ConnectionError:
+            print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
@@ -231,7 +235,7 @@ def getMesosSlaveId(mesosMasterEndpoint, hostname):
         else:
             return slaves[0]
 
-def getAppInstances(appName):
+def getInstanceList(appName):
     r = getAppInfo(appName)
     if None == r:
         print("No app: " + appName)
@@ -242,34 +246,51 @@ def getAppInstances(appName):
     return instances
 
 def getTaskInstance(task, filter):
-    appInstances = getAppInstances(task['appId'])
-    if filter(appInstances):
+    instances = getInstanceList(task['appId'])
+    if filter(instances):
         return {'appName': task['appId'], 'taskId': task['id'], 'instance': task}
 
 def decommission(mesosMasterEndpoint, hostname):
+    if not mesosMasterEndpoint:
+        mesosMasterEndpoint = mesos_master_endpoint()
     slaveId = getMesosSlaveId(mesosMasterEndpoint, hostname)
     if not slaveId:
         print("Cannot resolve slaveId for hostname {0}".format(hostname))
         return
     prompt_response = raw_input("Do you really want to decommission node with hostname = {0}, slaveId = {1} [y/n]? ".format(hostname, slaveId))
-    if prompt_response == 'y':
-        r = requests.get(url("/v2/tasks"), auth=httpBasicCreds, verify=httpsVerify)
-        if 200 == r.status_code:
-            print("Fetching list of tasks that need to be killed....")
-            tasks = [getTaskInstance(task, lambda l: len(l) > 1) for task in r.json()['tasks'] if task['slaveId'] == slaveId]
-            tasks = [task for task in tasks if task is not None]
-            failures = []
-            for task in tqdm.tqdm(tasks):
-                print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
-                try:
-                    killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=False)
-                except KeyboardInterrupt:
-                    print("Received <CTRL-C> stopping everything")
-                    exit(1)
-                except:
-                    print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
-                    print(traceback.format_exc())
-                    failures.append({'appName': task['appName'], 'taskId': task['taskId']})
+    if prompt_response != 'y':
+        print("Not going to decommission")
+        return
+    r = requests.get(url("/v2/tasks"), auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == r.status_code:
+        print("Fetching list of tasks that need to be killed....")
+        tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
+        candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
+        skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
+        candidate_tasks = [task for task in candidate_tasks if task is not None]
+        skipped_tasks = [task for task in skipped_tasks if task is not None]
+        failures = []
+        if skipped_tasks:
+            print("Skipping suspend of following apps because they are running with only one instance \n{0}"
+                .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
+            print("Scale them up before proceeding.... Exiting")
+            exit(1)
+        for task in tqdm.tqdm(candidate_tasks):
+            print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+            try:
+                killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True)
+            except KeyboardInterrupt:
+                print("Received <CTRL-C> stopping everything")
+                exit(1)
+            except:
+                print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
+                print(traceback.format_exc())
+                failures.append({'appName': task['appName'], 'taskId': task['taskId']})
+        if failures:
+            print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
+    else:
+        print("Tasks API errored out - returned: [" + str(r.status_code) + "] " + r.text)
+
 
 def decommissionCommand(decommissionClusterOptionsParser):
     decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
@@ -494,7 +515,7 @@ if __name__ == "__main__":
 
     #Decommission Cluster
     decommissionClusterOptionsParser = subparsers.add_parser('decommission', help='Decommission a Mesos slave')
-    decommissionClusterOptionsParser.add_argument('-m', '--mesos-endpoint', help='Mesos master host:port', default='localhost:5050', dest='mesos_endpoint', required=True)
+    decommissionClusterOptionsParser.add_argument('-m', '--mesos-endpoint', help='Mesos master host:port', dest='mesos_endpoint')
     decommissionClusterOptionsParser.add_argument('-n', '--hostname', help='Hostname of Mesos slave that needs to be decommissioned', default='localhost', required=True)
     decommissionClusterOptionsParser.set_defaults(func=decommissionCommand)
 
