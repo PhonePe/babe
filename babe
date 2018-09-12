@@ -285,7 +285,8 @@ def decommission(mesosMasterEndpoint, hostname):
             except:
                 print("Failed to kill app = {0}, instance = {1}".format(task['appName'], task['taskId']))
                 print(traceback.format_exc())
-                failures.append({'appName': task['appName'], 'taskId': task['taskId']})
+                exit(1)
+                #failures.append({'appName': task['appName'], 'taskId': task['taskId']})
         if failures:
             print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
     else:
