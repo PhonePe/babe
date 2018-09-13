@@ -348,7 +348,7 @@ def restartCommand(restartOptionsParser):
         targetScale=len(instances) + 1
         scale(appName, targetScale)
         waitForTargetScale(appName, targetScale)
-    for instance in instances:
+    for instance in tqdm.tqdm(instances):
         killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
         time.sleep(2)
         waitForTargetScale(appName, targetScale)
