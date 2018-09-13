@@ -426,7 +426,7 @@ def suspendCommand(suspendOptionsParser):
     currentInstances = len(instances)
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        for instance in instances:
+        for instance in tqdm.tqdm(instances):
             killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
             time.sleep(2)
             currentInstances = currentInstances - 1
