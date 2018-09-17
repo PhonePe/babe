@@ -172,41 +172,43 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     endpoint=adminEndpoint(instance)
+    skipOOR = False
     if None == endpoint:
-        print("No admin port info in instance: " + instance['id'])
-        return
+        print("No admin port info in instance: {0}, skipping OOR".format(instance['id']))
+        skipOOR = True
 
-    if rangerOOR:
-        oorUrl=endpoint + "/tasks/ranger-oor"
-        print("Calling " + oorUrl)
-        try:
-            oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Took node oor on ranger")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-                return
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+    if not skipOOR:
+        if rangerOOR:
+            oorUrl=endpoint + "/tasks/ranger-oor"
+            print("Calling " + oorUrl)
+            try:
+                oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    return
+            except ConnectionError:
+                print("Skipping connection error - exposed admin port may be invalid ?!")
+                pass
 
-    if lbOOR:
-        loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        print("Calling " + loadbalancer_oor_url)
-        try:
-            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Node is oor on loadbalancer")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Loadbalancer OOR api returned: [" + str(
-                    oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+        if lbOOR:
+            loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+            print("Calling " + loadbalancer_oor_url)
+            try:
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Loadbalancer OOR api returned: [" + str(
+                        oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+            except ConnectionError:
+                print("Skipping connection error - exposed admin port may be invalid ?!")
+                pass
 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
@@ -399,7 +401,7 @@ def scaleCommand(scaleOptionsParser):
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
         return
-    for instance in instances:
+    for instance in tqdm.tqdm(instances):
         if instanceCount >= currentInstances:
             break
         killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
