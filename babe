@@ -454,6 +454,7 @@ def suspendCommand(suspendOptionsParser):
     lbOOR = suspendOptionsParser.lboor
     rangerOOR = suspendOptionsParser.rangeroor
     destroy = suspendOptionsParser.destroy
+    parallel_process = suspendOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -465,37 +466,23 @@ def suspendCommand(suspendOptionsParser):
     currentInstances = len(instances)
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        for instance in tqdm.tqdm(instances):
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
-            time.sleep(2)
-            currentInstances = currentInstances - 1
-        waitForTargetScale(appName, 0)
+        if parallel_process > 1:
+            executor = concurrent.futures.ProcessPoolExecutor(parallel_process)
+            futures = [executor.submit(oorInstance, instance, grace, rangerOOR, lbOOR) for instance in instances]
+            concurrent.futures.wait(futures)
+            time.sleep(grace)
+            for instance in instances:
+                deleteInstance(appName, instance, True)
+                time.sleep(2)
+            waitForTargetScale(appName, 0)
+        else:
+            for instance in tqdm.tqdm(instances):
+                killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+                time.sleep(2)
+                currentInstances = currentInstances - 1
+            waitForTargetScale(appName, 0)
         if destroy:
             destroyApp(appName, force=True)
-
-
-def suspendParallel(suspendParallelParser):
-    appName = suspendParallelParser.app
-    grace = suspendParallelParser.grace
-    lbOOR = suspendParallelParser.lboor
-    rangerOOR = suspendParallelParser.rangeroor
-    r = getAppInfo(appName)
-    if None == r:
-        print("Error: No such app:" + appName)
-        return
-    data=r.json()
-    app=data['app']
-    instances = app['tasks']
-    keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
-    if keyboard_response == 'y':
-        executor = concurrent.futures.ProcessPoolExecutor(5)
-        futures = [executor.submit(oorInstance, instance, grace, rangerOOR, lbOOR) for instance in instances]
-        concurrent.futures.wait(futures)
-        time.sleep(grace)
-        for instance in instances:
-            deleteInstance(appName, instance, True)
-            time.sleep(2)
-        waitForTargetScale(appName, 0)
 
 
 def killSingleAppInstance(killSingleAppConfig):
@@ -579,15 +566,8 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
+    suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     suspendOptionsParser.set_defaults(func=suspendCommand)
-
-    #SuspendParallel
-    suspendParallelParser = subparsers.add_parser('suspendParallel', help='Suspend an app parallelly (equivalent to scale=0)')
-    suspendParallelParser.add_argument('app', help='App name')
-    suspendParallelParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
-    suspendParallelParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
-    suspendParallelParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
-    suspendParallelParser.set_defaults(func=suspendParallel)
 
     #Kill Instance
     killInstanceOptionsParser = subparsers.add_parser('kill', help='Kill an app instance')
