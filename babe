@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import argparse
+import concurrent.futures
 import json
 import requests
 import os.path
@@ -218,7 +219,9 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 
-def oorInstance(instance, grace, rangerOOR, lbOOR):
+def suspendParallel(appName, instance, grace, rangerOOR, lbOOR, wait_time):
+    print("waiting for :" + str(10*wait_time)+ " seconds")
+    time.sleep(8*wait_time)
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
@@ -246,6 +249,8 @@ def oorInstance(instance, grace, rangerOOR, lbOOR):
 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
+    deleteInstance(appName, instance, True)
+
 
 def deleteInstance(appName, instance, scale):
     params={'scale' : scale}
@@ -254,6 +259,9 @@ def deleteInstance(appName, instance, scale):
         print("Killed " + instance['id'])
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
+        print("Retrying after 2 seconds")
+        time.sleep(2)
+        deleteInstance(appName, instance, scale)
 
 
 def destroyApp(appName, force=False):
@@ -468,12 +476,8 @@ def suspendCommand(suspendOptionsParser):
     if keyboard_response == 'y':
         if parallel_process > 1:
             executor = concurrent.futures.ProcessPoolExecutor(parallel_process)
-            futures = [executor.submit(oorInstance, instance, grace, rangerOOR, lbOOR) for instance in instances]
+            futures = [executor.submit(suspendParallel, appName, instance, grace, rangerOOR, lbOOR, instances.index(instance)) for instance in instances]
             concurrent.futures.wait(futures)
-            time.sleep(grace)
-            for instance in instances:
-                deleteInstance(appName, instance, True)
-                time.sleep(2)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
