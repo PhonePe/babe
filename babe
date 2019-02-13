@@ -219,49 +219,53 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 
-def suspendParallel(appName, instance, grace, rangerOOR, lbOOR, wait_time):
-    print("waiting for :" + str(10*wait_time)+ " seconds")
-    time.sleep(8*wait_time)
-    endpoint=adminEndpoint(instance)
-    if None == endpoint:
-        print("No admin port info in instance: " + instance['id'])
-        return
-    oorUrl=endpoint + "/tasks/ranger-oor"
-    print("Calling " + oorUrl)
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism):
+    i = 0
+    while i < len(instances):
+        for j in range(0,parallelism):
+            instance = instances[j+i]
+            endpoint=adminEndpoint(instance)
+            if None == endpoint:
+                print("No admin port info in instance: " + instance['id'])
+                return
+            oorUrl=endpoint + "/tasks/ranger-oor"
+            print("Calling " + oorUrl)
 
-    if rangerOOR:
-        oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
-        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            print("Took node oor on ranger")
-        else:
-            print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-            return
+            if rangerOOR:
+                oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                else:
+                    print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    return
+            if lbOOR:
+                loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+                print("Calling " + loadbalancer_oor_url)
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                else:
+                    print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
 
-    if lbOOR:
-        loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        print("Calling " + loadbalancer_oor_url)
-        oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
-        if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-            print("Node is oor on loadbalancer")
-        else:
-            print("Loadbalancer oor api returned: [" + str(
-                oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
-
-    print("Waiting for grace period: " + str(grace) + " Second(s)")
-    time.sleep(grace)
-    deleteInstance(appName, instance, True)
+        print("Waiting for grace period: " + str(grace) + " Second(s)")
+        time.sleep(grace)
+        deleteBatchInstance(appName, instances[i:i+parallelism], True)
+        i = i + parallelism
 
 
-def deleteInstance(appName, instance, scale):
+def deleteBatchInstance(appName, instances, scale):
+    ids = []
+    for instance in instances:
+        ids.append(instance['id'])
     params={'scale' : scale}
-    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
+    killResponse=requests.post(url("/v2/tasks/delete"), data= json.dumps({'ids' : ids}), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == killResponse.status_code:
-        print("Killed " + instance['id'])
+        print("Killed " + str(ids))
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
         print("Retrying after 2 seconds")
         time.sleep(2)
-        deleteInstance(appName, instance, scale)
+        deleteBatchInstance(appName, instances, scale)
 
 
 def destroyApp(appName, force=False):
@@ -462,7 +466,7 @@ def suspendCommand(suspendOptionsParser):
     lbOOR = suspendOptionsParser.lboor
     rangerOOR = suspendOptionsParser.rangeroor
     destroy = suspendOptionsParser.destroy
-    parallel_process = suspendOptionsParser.parallelism
+    parallelism = suspendOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -474,10 +478,8 @@ def suspendCommand(suspendOptionsParser):
     currentInstances = len(instances)
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        if parallel_process > 1:
-            executor = concurrent.futures.ProcessPoolExecutor(parallel_process)
-            futures = [executor.submit(suspendParallel, appName, instance, grace, rangerOOR, lbOOR, instances.index(instance)) for instance in instances]
-            concurrent.futures.wait(futures)
+        if parallelism > 1:
+            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
