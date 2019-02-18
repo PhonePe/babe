@@ -218,11 +218,9 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 
-def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism):
-    i = 0
-    while i < len(instances):
-        for j in range(0,parallelism):
-            instance = instances[j+i]
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale):
+    for i in tqdm.tqdm(range(0,len(instances), parallelism)):
+        for instance in instances[i:i+parallelism]:
             endpoint=adminEndpoint(instance)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
@@ -248,8 +246,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism):
 
         print("Waiting for grace period: " + str(grace) + " Second(s)")
         time.sleep(grace)
-        deleteBatchInstance(appName, instances[i:i+parallelism], True)
-        i = i + parallelism
+        deleteBatchInstance(appName, instances[i:i+parallelism], scale)
 
 
 def deleteBatchInstance(appName, instances, scale):
@@ -393,20 +390,34 @@ def restartCommand(restartOptionsParser):
     if 0 == len(instances):
         print("There are no running instances. Use 'scale' to scale up")
         return
+    parallelism = restartOptionsParser.parallelism
     targetScale=len(instances)
-    if restartOptionsParser.noScaling == False:
-        targetScale=len(instances) + 1
-        scale(appName, targetScale)
-        waitForTargetScale(appName, targetScale)
-    for instance in tqdm.tqdm(instances):
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
-        time.sleep(2)
-        waitForTargetScale(appName, targetScale)
-        print("Instance " + instance['id'] + " replaced")
-    if restartOptionsParser.noScaling == False:
-        scale(appName, targetScale - 1)
-        waitForTargetScale(appName, targetScale - 1)
-    print("App restarted")
+    if parallelism > 1:
+        if restartOptionsParser.noScaling == False:
+            targetScale=len(instances) + parallelism
+            scale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
+        for i in tqdm.tqdm(range(0, len(instances), parallelism)):
+            instances_batch = instances[i:i+parallelism]
+            suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
+        if restartOptionsParser.noScaling == False:
+            scale(appName, targetScale - parallelism)
+            waitForTargetScale(appName, targetScale - parallelism)
+        print("App Restarted")
+    else :
+        if restartOptionsParser.noScaling == False:
+            targetScale=len(instances) + 1
+            scale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
+        for instance in tqdm.tqdm(instances):
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
+            time.sleep(2)
+            waitForTargetScale(appName, targetScale)
+            print("Instance " + instance['id'] + " replaced")
+        if restartOptionsParser.noScaling == False:
+            scale(appName, targetScale - 1)
+            waitForTargetScale(appName, targetScale - 1)
+        print("App restarted")
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -478,7 +489,7 @@ def suspendCommand(suspendOptionsParser):
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
         if parallelism > 1:
-            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism)
+            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
@@ -553,6 +564,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
