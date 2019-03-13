@@ -392,6 +392,9 @@ def restartCommand(restartOptionsParser):
         return
     parallelism = restartOptionsParser.parallelism
     targetScale=len(instances)
+    if parallelism >= targetScale/2 :
+        print("parallelism can not be more than "+ str(int(targetScale/2)))
+        return
     if parallelism > 1:
         if restartOptionsParser.noScaling == False:
             targetScale=len(instances) + parallelism
@@ -399,8 +402,13 @@ def restartCommand(restartOptionsParser):
             waitForTargetScale(appName, targetScale)
         for i in tqdm.tqdm(range(0, len(instances), parallelism)):
             instances_batch = instances[i:i+parallelism]
+            print("value of i: "+str(i))
             suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
-            waitForTargetScale(appName, targetScale)
+            if(i+parallelism >= len(instances)-parallelism) :
+                scale(appName, targetScale - parallelism)
+                waitForTargetScale(appName, targetScale - parallelism)
+            else :
+                waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale - parallelism)
             waitForTargetScale(appName, targetScale - parallelism)
@@ -413,7 +421,11 @@ def restartCommand(restartOptionsParser):
         for instance in tqdm.tqdm(instances):
             killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
             time.sleep(2)
-            waitForTargetScale(appName, targetScale)
+            if(instances.index(instance) == len(instances)-1) :
+                scale(appName, targetScale-1)
+                waitForTargetScale(appName, targetScale-1)
+            else :
+                waitForTargetScale(appName, targetScale)
             print("Instance " + instance['id'] + " replaced")
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale - 1)
