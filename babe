@@ -217,6 +217,53 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
+
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale):
+    for i in tqdm.tqdm(range(0,len(instances), parallelism)):
+        for instance in instances[i:i+parallelism]:
+            endpoint=adminEndpoint(instance)
+            if None == endpoint:
+                print("No admin port info in instance: " + instance['id'])
+                return
+            oorUrl=endpoint + "/tasks/ranger-oor"
+            print("Calling " + oorUrl)
+
+            if rangerOOR:
+                oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                else:
+                    print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    return
+            if lbOOR:
+                loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+                print("Calling " + loadbalancer_oor_url)
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                else:
+                    print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+
+        print("Waiting for grace period: " + str(grace) + " Second(s)")
+        time.sleep(grace)
+        deleteBatchInstance(appName, instances[i:i+parallelism], scale)
+
+
+def deleteBatchInstance(appName, instances, scale):
+    ids = []
+    for instance in instances:
+        ids.append(instance['id'])
+    params={'scale' : scale}
+    killResponse=requests.post(url("/v2/tasks/delete"), data= json.dumps({'ids' : ids}), params=params, auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == killResponse.status_code:
+        print("Killed " + str(ids))
+    else:
+        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
+        print("Retrying after 2 seconds")
+        time.sleep(2)
+        deleteBatchInstance(appName, instances, scale)
+
+
 def destroyApp(appName, force=False):
     if not force:
         prompt_response = raw_input("Do you really want to destroy the app {0} [y/n]? ".format(appName))
@@ -343,20 +390,46 @@ def restartCommand(restartOptionsParser):
     if 0 == len(instances):
         print("There are no running instances. Use 'scale' to scale up")
         return
+    parallelism = restartOptionsParser.parallelism
     targetScale=len(instances)
-    if restartOptionsParser.noScaling == False:
-        targetScale=len(instances) + 1
-        scale(appName, targetScale)
-        waitForTargetScale(appName, targetScale)
-    for instance in tqdm.tqdm(instances):
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
-        time.sleep(2)
-        waitForTargetScale(appName, targetScale)
-        print("Instance " + instance['id'] + " replaced")
-    if restartOptionsParser.noScaling == False:
-        scale(appName, targetScale - 1)
-        waitForTargetScale(appName, targetScale - 1)
-    print("App restarted")
+    if parallelism >= targetScale/2 :
+        print("parallelism can not be more than "+ str(int(targetScale/2)))
+        return
+    if parallelism > 1:
+        if restartOptionsParser.noScaling == False:
+            targetScale=len(instances) + parallelism
+            scale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
+        for i in tqdm.tqdm(range(0, len(instances), parallelism)):
+            instances_batch = instances[i:i+parallelism]
+            suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
+            if(i+parallelism >= len(instances)-parallelism) :
+                scale(appName, targetScale - parallelism)
+                waitForTargetScale(appName, targetScale - parallelism)
+            else :
+                waitForTargetScale(appName, targetScale)
+        if restartOptionsParser.noScaling == False:
+            scale(appName, targetScale - parallelism)
+            waitForTargetScale(appName, targetScale - parallelism)
+        print("App Restarted")
+    else :
+        if restartOptionsParser.noScaling == False:
+            targetScale=len(instances) + 1
+            scale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
+        for instance in tqdm.tqdm(instances):
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
+            time.sleep(2)
+            if(instances.index(instance) == len(instances)-1) :
+                scale(appName, targetScale-1)
+                waitForTargetScale(appName, targetScale-1)
+            else :
+                waitForTargetScale(appName, targetScale)
+            print("Instance " + instance['id'] + " replaced")
+        if restartOptionsParser.noScaling == False:
+            scale(appName, targetScale - 1)
+            waitForTargetScale(appName, targetScale - 1)
+        print("App restarted")
 
 def infoCommand(infoOptionsParser):
     r = getAppInfo(infoOptionsParser.app)
@@ -415,6 +488,7 @@ def suspendCommand(suspendOptionsParser):
     lbOOR = suspendOptionsParser.lboor
     rangerOOR = suspendOptionsParser.rangeroor
     destroy = suspendOptionsParser.destroy
+    parallelism = suspendOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -426,11 +500,15 @@ def suspendCommand(suspendOptionsParser):
     currentInstances = len(instances)
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        for instance in tqdm.tqdm(instances):
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
-            time.sleep(2)
-            currentInstances = currentInstances - 1
-        waitForTargetScale(appName, 0)
+        if parallelism > 1:
+            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
+            waitForTargetScale(appName, 0)
+        else:
+            for instance in tqdm.tqdm(instances):
+                killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+                time.sleep(2)
+                currentInstances = currentInstances - 1
+            waitForTargetScale(appName, 0)
         if destroy:
             destroyApp(appName, force=True)
 
@@ -498,6 +576,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-n', '--no-scaling', help="Don't scale up the app before killing the processs", dest='noScaling', action='store_true')
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -516,6 +595,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
+    suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
