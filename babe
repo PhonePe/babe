@@ -393,8 +393,11 @@ def restartCommand(restartOptionsParser):
     parallelism = restartOptionsParser.parallelism
     targetScale=len(instances)
     if parallelism > 1:
-        if parallelism >= targetScale / 2:
-            print("parallelism can not be more than or equal to " + str(int(targetScale / 2)))
+        maxAllowedParallelism = int(targetScale/2)
+        if(maxAllowedParallelism<1) :
+            maxAllowedParallelism = 1
+        if parallelism >= maxAllowedParallelism:
+            print("parallelism can not be more than " + str(maxAllowedParallelism))
             return
         if restartOptionsParser.noScaling == False:
             targetScale=len(instances) + parallelism
