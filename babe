@@ -392,25 +392,29 @@ def restartCommand(restartOptionsParser):
         return
     parallelism = restartOptionsParser.parallelism
     targetScale=len(instances)
-    if parallelism >= targetScale/2 :
-        print("parallelism can not be more than "+ str(int(targetScale/2)))
-        return
     if parallelism > 1:
+        maxAllowedParallelism = int(targetScale/2)
+        if(maxAllowedParallelism<1) :
+            maxAllowedParallelism = 1
+        if parallelism >= maxAllowedParallelism:
+            print("parallelism can not be more than " + str(maxAllowedParallelism))
+            return
         if restartOptionsParser.noScaling == False:
             targetScale=len(instances) + parallelism
             scale(appName, targetScale)
             waitForTargetScale(appName, targetScale)
         for i in tqdm.tqdm(range(0, len(instances), parallelism)):
             instances_batch = instances[i:i+parallelism]
-            suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
-            if(i+parallelism >= len(instances)-parallelism) :
-                scale(appName, targetScale - parallelism)
-                waitForTargetScale(appName, targetScale - parallelism)
+            if(i+parallelism > len(instances)-parallelism and len(instances_batch) == parallelism) :
+                print("suspending with scale down")
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True)
+                targetScale = targetScale - parallelism
             else :
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
                 waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
-            scale(appName, targetScale - parallelism)
-            waitForTargetScale(appName, targetScale - parallelism)
+            scale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
         print("App Restarted")
     else :
         if restartOptionsParser.noScaling == False:
