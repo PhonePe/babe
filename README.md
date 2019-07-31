@@ -35,5 +35,10 @@ sudo easy_install argparse requests time tabulate colored
 babe -e marathon.yourdomain.com:8080 list
 ```
 
+## Email option
+```
+babe -e marathon.yourdomain.com:8080 <yourAction> -C path_to_config_file
+```
+
 ## License
 Apache 2
