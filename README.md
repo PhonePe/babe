@@ -37,8 +37,10 @@ babe -e marathon.yourdomain.com:8080 list
 
 ## Email option
 ```
-babe -e marathon.yourdomain.com:8080 <yourAction> -C path_to_config_file
+babe -C path_to_config_file -e marathon.yourdomain.com:8080 <yourAction>
 ```
+* default config file path is /etc/babe/config.yml
+* if config is not present at default path or you have not added your custom config file then email option is disabled.
 
 ## License
 Apache 2

@@ -1,3 +1,4 @@
+#emailFuncutionality related config
 smtp_server: "company.smtp.server.host"
 port: "company.smtp.server.port"
 sender_email: "sample.sender@company.com"
