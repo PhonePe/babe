@@ -41,8 +41,7 @@ userAuth=False
 httpBasicCreds = None
 protocol = "http"
 httpsVerify = True
-#default_config_path="/etc/babe/config.yml"
-default_config_path = "config.yml"
+default_config_path="/etc/babe/config.yml"
 babe_config = None
 disable_email = False
 
