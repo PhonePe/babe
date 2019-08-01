@@ -52,6 +52,12 @@ def read_config(config_path):
         print("Unable to load the configuration from path " + config_path)
         return None
 
+def get_app_owner_email(appDataJson):
+    appOwnerEmail = None
+    if 'app.owner.email' in appDataJson['labels']:
+        appOwnerEmail = appDataJson['labels']['app.owner.email']
+    return appOwnerEmail
+
 def send_email(subject, content, to, cc):
     if disable_email or None == babe_config:
         print("Warning: Email notifications disabled")
@@ -167,14 +173,12 @@ def deployCommand(deployOptionsParser):
         print("App deployment request accepted. Use list command to check")
 
         jsonData = json.loads(data)
-        app_owner_email = None
-        if 'app.owner.email' in jsonData['labels']:
-            app_owner_email = jsonData['labels']['app.owner.email']
+        appOwnerEmail = get_app_owner_email(jsonData)
         subject = "[Babe Alert] Deploying " + str(jsonData['id'])
         content = "App: " + str(jsonData['id']) + "<br>" + "User: " + getpass.getuser()
-        if None == app_owner_email:
+        if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(jsonData['id'])
-        send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+        send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
     elif r.status_code == 409:
         print("Error: App already exists")
@@ -333,14 +337,12 @@ def destroyCommand(destroyAppOptionsParser):
         return
     data=r.json()
     app=data['app']
-    app_owner_email = None
-    if 'app.owner.email' in app['labels']:
-        app_owner_email = app['labels']['app.owner.email']
+    appOwnerEmail = get_app_owner_email(app)
     subject = "[Babe Alert] Destroying " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>" + "User: " + getpass.getuser()
-    if None == app_owner_email:
+    if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
     destroyApp(appName)
 
@@ -453,15 +455,12 @@ def restartCommand(restartOptionsParser):
         return
     data=r.json()
     app=data['app']
-
-    app_owner_email = None
-    if 'app.owner.email' in app['labels']:
-        app_owner_email = app['labels']['app.owner.email']
+    appOwnerEmail = get_app_owner_email(app)
     subject = "[Babe Alert] Restarting " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
-    if None == app_owner_email:
+    if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
     sortInstancesByStagingTime(app)
     instances = app['tasks']
@@ -551,14 +550,12 @@ def scaleCommand(scaleOptionsParser):
     instanceCount=scaleOptionsParser.instances
     currentInstances=len(instances)
 
-    app_owner_email = None
-    if 'app.owner.email' in app['labels']:
-        app_owner_email = app['labels']['app.owner.email']
+    appOwnerEmail = get_app_owner_email(app)
     subject = "[Babe Alert] Scaling " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
-    if None == app_owner_email:
+    if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
@@ -592,14 +589,12 @@ def suspendCommand(suspendOptionsParser):
 
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        app_owner_email = None
-        if 'app.owner.email' in app['labels']:
-            app_owner_email = app['labels']['app.owner.email']
+        appOwnerEmail = get_app_owner_email(app)
         subject = "[Babe Alert] Suspending " + str(app['id'])
         content = "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
-        if None == app_owner_email:
+        if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-        send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+        send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
         if parallelism > 1:
             suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
@@ -629,14 +624,12 @@ def killSingleAppInstance(killSingleAppConfig):
     instances = app['tasks']
     candidateInstance = None
 
-    app_owner_email = None
-    if 'app.owner.email' in app['labels']:
-        app_owner_email = app['labels']['app.owner.email']
+    appOwnerEmail = get_app_owner_email(app)
     subject = "[Babe Alert] Killing one instance of " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>instanceId: " + str(instanceId) + "<br>grace: " + str(grace) + "<br>User: " + getpass.getuser()
-    if None == app_owner_email:
+    if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], app_owner_email)
+    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
 
     for instance in instances:
         if instance['id'] == instanceId:
