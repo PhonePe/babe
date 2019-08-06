@@ -52,6 +52,12 @@ def readConfig(configPath):
         print("Unable to load the configuration from path " + configPath)
         return None
 
+def getEmailTo(babeConfig):
+    if None == babeConfig:
+        return None
+    else:
+        return babeConfig['default_receiver']
+
 def getAppOwnerEmail(appDataJson):
     appOwnerEmail = None
     if 'app.owner.email' in appDataJson['labels']:
@@ -59,7 +65,7 @@ def getAppOwnerEmail(appDataJson):
     return appOwnerEmail
 
 def sendEmail(subject, content, to, cc):
-    if disableEmail or None == babeConfig:
+    if disableEmail or None == babeConfig or None == to:
         print("Warning: Email notifications disabled")
         return
     server = smtplib.SMTP(babeConfig['smtp_server'], babeConfig['port'])
@@ -178,7 +184,7 @@ def deployCommand(deployOptionsParser):
         content = "App: " + str(jsonData['id']) + "<br>" + "User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(jsonData['id'])
-        sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+        sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
     elif r.status_code == 409:
         print("Error: App already exists")
@@ -342,7 +348,7 @@ def destroyCommand(destroyAppOptionsParser):
     content = "App: " + str(app['id']) + "<br>" + "User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
     destroyApp(appName)
 
@@ -420,7 +426,7 @@ def decommission(mesosMasterEndpoint, hostname):
 def decommissionCommand(decommissionClusterOptionsParser):
     subject = "[Babe Alert] Decommissioning " + decommissionClusterOptionsParser.hostname
     content = "Hostname: " + str(decommissionClusterOptionsParser.hostname) + "<br>" + "mesos_endpoint: " + str(decommissionClusterOptionsParser.mesos_endpoint) + "<br>" + "User: " + getpass.getuser()
-    sendEmail(subject, content, babeConfig['default_receiver'], None)
+    sendEmail(subject, content, getEmailTo(babeConfig), None)
     decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
 
 def waitForTargetScale(appName, targetScale):
@@ -460,7 +466,7 @@ def restartCommand(restartOptionsParser):
     content = "App: " + str(app['id']) + "<br>grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
     sortInstancesByStagingTime(app)
     instances = app['tasks']
@@ -555,7 +561,7 @@ def scaleCommand(scaleOptionsParser):
     content = "App: " + str(app['id']) + "<br>currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
@@ -594,7 +600,7 @@ def suspendCommand(suspendOptionsParser):
         content = "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-        sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+        sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
         if parallelism > 1:
             suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
@@ -629,7 +635,7 @@ def killSingleAppInstance(killSingleAppConfig):
     content = "App: " + str(app['id']) + "<br>instanceId: " + str(instanceId) + "<br>grace: " + str(grace) + "<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
     for instance in instances:
         if instance['id'] == instanceId:
