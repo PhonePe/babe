@@ -41,40 +41,40 @@ userAuth=False
 httpBasicCreds = None
 protocol = "http"
 httpsVerify = True
-default_config_path="/etc/babe/config.yml"
-babe_config = None
-disable_email = False
+defaultConfigPath="/etc/babe/config.yml"
+babeConfig = None
+disableEmail = False
 
-def read_config(config_path):
+def readConfig(configPath):
     try:
-        return yaml.safe_load(open(config_path))
+        return yaml.safe_load(open(configPath))
     except Exception:
-        print("Unable to load the configuration from path " + config_path)
+        print("Unable to load the configuration from path " + configPath)
         return None
 
-def get_app_owner_email(appDataJson):
+def getAppOwnerEmail(appDataJson):
     appOwnerEmail = None
     if 'app.owner.email' in appDataJson['labels']:
         appOwnerEmail = appDataJson['labels']['app.owner.email']
     return appOwnerEmail
 
-def send_email(subject, content, to, cc):
-    if disable_email or None == babe_config:
+def sendEmail(subject, content, to, cc):
+    if disableEmail or None == babeConfig:
         print("Warning: Email notifications disabled")
         return
-    server = smtplib.SMTP(babe_config['smtp_server'], babe_config['port'])
+    server = smtplib.SMTP(babeConfig['smtp_server'], babeConfig['port'])
     try:
         msg = MIMEMultipart()
         msg['Subject'] = subject
-        msg['From'] = babe_config['sender_email']
+        msg['From'] = babeConfig['sender_email']
         if not None == cc:
             msg['CC'] = cc
         if None == to:
             raise Exception('To param cannot be empty for email')
         msg['To'] = to
-        message_body = MIMEText(content, 'html')
-        msg.attach(message_body)
-        server.sendmail(babe_config['sender_email'], to, msg.as_string())
+        messageBody = MIMEText(content, 'html')
+        msg.attach(messageBody)
+        server.sendmail(babeConfig['sender_email'], to, msg.as_string())
         if None == cc:
             print("An email has been sent to: " + to)
         else:
@@ -173,12 +173,12 @@ def deployCommand(deployOptionsParser):
         print("App deployment request accepted. Use list command to check")
 
         jsonData = json.loads(data)
-        appOwnerEmail = get_app_owner_email(jsonData)
+        appOwnerEmail = getAppOwnerEmail(jsonData)
         subject = "[Babe Alert] Deploying " + str(jsonData['id'])
         content = "App: " + str(jsonData['id']) + "<br>" + "User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(jsonData['id'])
-        send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+        sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
     elif r.status_code == 409:
         print("Error: App already exists")
@@ -337,12 +337,12 @@ def destroyCommand(destroyAppOptionsParser):
         return
     data=r.json()
     app=data['app']
-    appOwnerEmail = get_app_owner_email(app)
+    appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Destroying " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>" + "User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
     destroyApp(appName)
 
@@ -420,7 +420,7 @@ def decommission(mesosMasterEndpoint, hostname):
 def decommissionCommand(decommissionClusterOptionsParser):
     subject = "[Babe Alert] Decommissioning " + decommissionClusterOptionsParser.hostname
     content = "Hostname: " + str(decommissionClusterOptionsParser.hostname) + "<br>" + "mesos_endpoint: " + str(decommissionClusterOptionsParser.mesos_endpoint) + "<br>" + "User: " + getpass.getuser()
-    send_email(subject, content, babe_config['default_receiver'], None)
+    sendEmail(subject, content, babeConfig['default_receiver'], None)
     decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
 
 def waitForTargetScale(appName, targetScale):
@@ -455,12 +455,12 @@ def restartCommand(restartOptionsParser):
         return
     data=r.json()
     app=data['app']
-    appOwnerEmail = get_app_owner_email(app)
+    appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Restarting " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
     sortInstancesByStagingTime(app)
     instances = app['tasks']
@@ -550,12 +550,12 @@ def scaleCommand(scaleOptionsParser):
     instanceCount=scaleOptionsParser.instances
     currentInstances=len(instances)
 
-    appOwnerEmail = get_app_owner_email(app)
+    appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Scaling " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
@@ -589,12 +589,12 @@ def suspendCommand(suspendOptionsParser):
 
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
-        appOwnerEmail = get_app_owner_email(app)
+        appOwnerEmail = getAppOwnerEmail(app)
         subject = "[Babe Alert] Suspending " + str(app['id'])
         content = "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-        send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+        sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
         if parallelism > 1:
             suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
@@ -624,12 +624,12 @@ def killSingleAppInstance(killSingleAppConfig):
     instances = app['tasks']
     candidateInstance = None
 
-    appOwnerEmail = get_app_owner_email(app)
+    appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Killing one instance of " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>instanceId: " + str(instanceId) + "<br>grace: " + str(grace) + "<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-    send_email(subject, content, babe_config['default_receiver'], appOwnerEmail)
+    sendEmail(subject, content, babeConfig['default_receiver'], appOwnerEmail)
 
     for instance in instances:
         if instance['id'] == instanceId:
@@ -654,7 +654,7 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--protocol', help='Protocol for Marathon endpoint', choices=['http','https'], default="http")
     parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
     parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
-    parser.add_argument('-C', '--configuration', help='Babe configuration file path', default=default_config_path, required=False)
+    parser.add_argument('-C', '--configuration', help='Babe configuration file path', default=defaultConfigPath, required=False)
 
     subparsers = parser.add_subparsers(help='Available operations')
 
@@ -724,8 +724,8 @@ if __name__ == "__main__":
     decommissionClusterOptionsParser.set_defaults(func=decommissionCommand)
 
     parsed=parser.parse_args()
-    babe_config = read_config(parsed.configuration)
-    disable_email = (None == babe_config)
+    babeConfig = readConfig(parsed.configuration)
+    disableEmail = (None == babeConfig)
     marathon = parsed.endpoint
     useAuth = len(parsed.user) > 0
     if useAuth == True:
