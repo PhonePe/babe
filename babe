@@ -209,14 +209,9 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def adminEndpoint(instance):
+def adminEndpoint(instance, portNumber=1):
     if 'ports' in instance and len(instance['ports']) >= 2:
-        return "http://" + instance['host'] + ":" + str(instance['ports'][1])
-    return None
-
-def adminFabricEndpoint(instance):
-    if 'ports' in instance and len(instance['ports']) >= 1:
-        return "http://" + instance['host'] + ":" + str(instance['ports'][0])
+        return "http://" + instance['host'] + ":" + str(instance['ports'][portNumber])
     return None
 
 def getAppInfo(appName):
@@ -234,13 +229,28 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
-    endpoint=adminEndpoint(instance)
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
+    endpoint=adminEndpoint(instance, 0 if fabric else 1)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
 
-    if rangerOOR:
+    if fabric:
+        closeProcessorUrl = endpoint + "/close-processors"
+        print("Calling " + closeProcessorUrl)
+        try:
+            closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+            if 200 == closeProcessorResponse.status_code:
+                print("Closed processor")
+            elif 404 == closeProcessorResponse.status_code:
+                print("Close processor api returned 404")
+            else:
+                print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+        except ConnectionError:
+            print("Skipping connection error - exposed admin port may be invalid ?!")
+            pass
+
+    if rangerOOR and not fabric:
         oorUrl=endpoint + "/tasks/ranger-oor"
         print("Calling " + oorUrl)
         try:
@@ -256,7 +266,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if lbOOR:
+    if lbOOR and not fabric:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
         try:
@@ -281,79 +291,46 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
-def killFabricInstance(appName, instance, scale):
-    endpoint=adminFabricEndpoint(instance)
-    if None == endpoint:
-        print("No admin port info in instance: " + instance['id'])
-        return
-
-    closeProcessorUrl=endpoint + "/close-processors"
-    print("Calling " + closeProcessorUrl)
-    try:
-        closeProcessorResponse=requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
-        if 200 == closeProcessorResponse.status_code:
-            print("Closed processor")
-        elif 404 == closeProcessorResponse.status_code:
-            print("Close processor api returned 404")
-        else:
-            print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
-    except ConnectionError:
-        print("Skipping connection error - exposed admin port may be invalid ?!")
-        pass
-
-    params={'scale' : scale}
-    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
-    if 200 == killResponse.status_code:
-        print("Killed " + instance['id'])
-    else:
-        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
-
-def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale):
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, fabric=False):
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint=adminEndpoint(instance)
+            endpoint=adminEndpoint(instance, 0 if fabric else 1)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
-            oorUrl=endpoint + "/tasks/ranger-oor"
-            print("Calling " + oorUrl)
 
-            if rangerOOR:
-                oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
-                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                    print("Took node oor on ranger")
+            if fabric:
+                closeProcessorUrl = endpoint + "/close-processors"
+                print("Calling " + closeProcessorUrl)
+
+                closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == closeProcessorResponse.status_code:
+                    print("Closed processor")
                 else:
-                    print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
-            if lbOOR:
-                loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-                print("Calling " + loadbalancer_oor_url)
-                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
-                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                    print("Node is oor on loadbalancer")
-                else:
-                    print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+            else:
+                oorUrl=endpoint + "/tasks/ranger-oor"
+                print("Calling " + oorUrl)
+
+                if rangerOOR:
+                    oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                        print("Took node oor on ranger")
+                    else:
+                        print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                        return
+                if lbOOR:
+                    loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+                    print("Calling " + loadbalancer_oor_url)
+                    oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+                    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                        print("Node is oor on loadbalancer")
+                    else:
+                        print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
 
         print("Waiting for grace period: " + str(grace) + " Second(s)")
         time.sleep(grace)
-        deleteBatchInstance(appName, instances[i:i+parallelism], scale)
-
-def suspendFabricParallel(appName, instances, parallelism, scale):
-    for i in tqdm.tqdm(range(0,len(instances), parallelism)):
-        for instance in instances[i:i+parallelism]:
-            endpoint=adminFabricEndpoint(instance)
-            if None == endpoint:
-                print("No admin port info in instance: " + instance['id'])
-                return
-            closeProcessorUrl=endpoint + "/close-processors"
-            print("Calling " + closeProcessorUrl)
-
-            closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify)
-            if 200 == closeProcessorResponse.status_code:
-                print("Closed processor")
-            else:
-                print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
-                return
         deleteBatchInstance(appName, instances[i:i+parallelism], scale)
 
 def deleteBatchInstance(appName, instances, scale):
@@ -631,6 +608,7 @@ def suspendCommand(suspendOptionsParser):
     rangerOOR = suspendOptionsParser.rangeroor
     destroy = suspendOptionsParser.destroy
     parallelism = suspendOptionsParser.parallelism
+    fabric = suspendOptionsParser.fabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -651,52 +629,16 @@ def suspendCommand(suspendOptionsParser):
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
         if parallelism > 1:
-            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
+            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True, fabric)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
-                killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+                killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
                 time.sleep(2)
                 currentInstances = currentInstances - 1
             waitForTargetScale(appName, 0)
         if destroy:
             destroyApp(appName, force=True)
-
-def suspendFabricCommand(suspendOptionsParser):
-    appName = suspendOptionsParser.app
-    destroy = suspendOptionsParser.destroy
-    parallelism = suspendOptionsParser.parallelism
-    r = getAppInfo(appName)
-    if None == r:
-        print("Error: No such app:" + appName)
-        return
-    data=r.json()
-    app=data['app']
-    sortInstancesByStagingTime(app)
-    instances = app['tasks']
-    currentInstances = len(instances)
-
-    keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
-    if keyboard_response == 'y':
-        appOwnerEmail = getAppOwnerEmail(app)
-        subject = "[Babe Alert] Suspending " + str(app['id'])
-        content = "App: " + str(app['id']) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
-        if None == appOwnerEmail:
-            content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
-        sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
-
-        if parallelism > 1:
-            suspendFabricParallel(appName, instances, parallelism, True)
-            waitForTargetScale(appName, 0)
-        else:
-            for instance in tqdm.tqdm(instances):
-                killFabricInstance(appName, instance, True)
-                time.sleep(2)
-                currentInstances = currentInstances - 1
-            waitForTargetScale(appName, 0)
-        if destroy:
-            destroyApp(appName, force=True)
-
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
@@ -790,17 +732,8 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
     suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
+    suspendOptionsParser.add_argument('-f', '--fabric', help='Set the argument as True if the app is a Fabric processor', type=bool, default=False)
     suspendOptionsParser.set_defaults(func=suspendCommand)
-
-    #Suspend Fabric Processor
-    suspendFabricOptionsParser = subparsers.add_parser('suspendFabric', help='Suspend an app (equivalent to scale=0)')
-    suspendFabricOptionsParser.add_argument('app', help='App name')
-    suspendFabricOptionsParser.add_argument('-d', '--destroy',
-                                      help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running',
-                                      dest='destroy', action='store_true', default=False)
-    suspendFabricOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command',
-                                      type=int, default=1)
-    suspendFabricOptionsParser.set_defaults(func=suspendFabricCommand)
 
     #Kill Instance
     killInstanceOptionsParser = subparsers.add_parser('kill', help='Kill an app instance')
