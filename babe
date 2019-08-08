@@ -214,6 +214,11 @@ def adminEndpoint(instance):
         return "http://" + instance['host'] + ":" + str(instance['ports'][1])
     return None
 
+def adminFabricEndpoint(instance):
+    if 'ports' in instance and len(instance['ports']) >= 1:
+        return "http://" + instance['host'] + ":" + str(instance['ports'][0])
+    return None
+
 def getAppInfo(appName):
     params = {'embed' : ['apps.taskStats', 'apps.deployments']}
     r = requests.get(url("/v2/apps/" + appName), params=params, auth=httpBasicCreds, verify=httpsVerify)
@@ -276,6 +281,32 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
+def killFabricInstance(appName, instance, scale):
+    endpoint=adminFabricEndpoint(instance)
+    if None == endpoint:
+        print("No admin port info in instance: " + instance['id'])
+        return
+
+    closeProcessorUrl=endpoint + "/close-processors"
+    print("Calling " + closeProcessorUrl)
+    try:
+        closeProcessorResponse=requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+        if 200 == closeProcessorResponse.status_code:
+            print("Closed processor")
+        elif 404 == closeProcessorResponse.status_code:
+            print("Close processor api returned 404")
+        else:
+            print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+    except ConnectionError:
+        print("Skipping connection error - exposed admin port may be invalid ?!")
+        pass
+
+    params={'scale' : scale}
+    killResponse=requests.delete(url("/v2/apps/" + appName + "/tasks/" + instance['id']), params=params, auth=httpBasicCreds, verify=httpsVerify)
+    if 200 == killResponse.status_code:
+        print("Killed " + instance['id'])
+    else:
+        print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale):
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
@@ -307,6 +338,23 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
         time.sleep(grace)
         deleteBatchInstance(appName, instances[i:i+parallelism], scale)
 
+def suspendFabricParallel(appName, instances, parallelism, scale):
+    for i in tqdm.tqdm(range(0,len(instances), parallelism)):
+        for instance in instances[i:i+parallelism]:
+            endpoint=adminFabricEndpoint(instance)
+            if None == endpoint:
+                print("No admin port info in instance: " + instance['id'])
+                return
+            closeProcessorUrl=endpoint + "/close-processors"
+            print("Calling " + closeProcessorUrl)
+
+            closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify)
+            if 200 == closeProcessorResponse.status_code:
+                print("Closed processor")
+            else:
+                print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+                return
+        deleteBatchInstance(appName, instances[i:i+parallelism], scale)
 
 def deleteBatchInstance(appName, instances, scale):
     ids = []
@@ -614,6 +662,41 @@ def suspendCommand(suspendOptionsParser):
         if destroy:
             destroyApp(appName, force=True)
 
+def suspendFabricCommand(suspendOptionsParser):
+    appName = suspendOptionsParser.app
+    destroy = suspendOptionsParser.destroy
+    parallelism = suspendOptionsParser.parallelism
+    r = getAppInfo(appName)
+    if None == r:
+        print("Error: No such app:" + appName)
+        return
+    data=r.json()
+    app=data['app']
+    sortInstancesByStagingTime(app)
+    instances = app['tasks']
+    currentInstances = len(instances)
+
+    keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
+    if keyboard_response == 'y':
+        appOwnerEmail = getAppOwnerEmail(app)
+        subject = "[Babe Alert] Suspending " + str(app['id'])
+        content = "App: " + str(app['id']) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
+        if None == appOwnerEmail:
+            content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
+        sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
+
+        if parallelism > 1:
+            suspendFabricParallel(appName, instances, parallelism, True)
+            waitForTargetScale(appName, 0)
+        else:
+            for instance in tqdm.tqdm(instances):
+                killFabricInstance(appName, instance, True)
+                time.sleep(2)
+                currentInstances = currentInstances - 1
+            waitForTargetScale(appName, 0)
+        if destroy:
+            destroyApp(appName, force=True)
+
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
@@ -708,6 +791,16 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
     suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     suspendOptionsParser.set_defaults(func=suspendCommand)
+
+    #Suspend Fabric Processor
+    suspendFabricOptionsParser = subparsers.add_parser('suspendFabric', help='Suspend an app (equivalent to scale=0)')
+    suspendFabricOptionsParser.add_argument('app', help='App name')
+    suspendFabricOptionsParser.add_argument('-d', '--destroy',
+                                      help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running',
+                                      dest='destroy', action='store_true', default=False)
+    suspendFabricOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command',
+                                      type=int, default=1)
+    suspendFabricOptionsParser.set_defaults(func=suspendFabricCommand)
 
     #Kill Instance
     killInstanceOptionsParser = subparsers.add_parser('kill', help='Kill an app instance')
