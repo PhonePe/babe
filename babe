@@ -732,7 +732,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
     suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
-    suspendOptionsParser.add_argument('-f', '--fabric', help='Set the argument as True if the app is a Fabric processor', type=bool, default=False)
+    suspendOptionsParser.add_argument('-f', '--fabric', help='Set the argument to True if the app is a Fabric processor (-l and -r options are ignored)', type=bool, default=False)
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
