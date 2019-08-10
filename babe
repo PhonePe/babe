@@ -480,6 +480,7 @@ def restartCommand(restartOptionsParser):
     lbOOR = restartOptionsParser.lboor
     rangerOOR = restartOptionsParser.rangeroor
     parallelism = restartOptionsParser.parallelism
+    fabric = restartOptionsParser.fabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -514,10 +515,10 @@ def restartCommand(restartOptionsParser):
             instances_batch = instances[i:i+parallelism]
             if(i+parallelism > len(instances)-parallelism and len(instances_batch) == parallelism) :
                 print("suspending with scale down")
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True)
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True, fabric)
                 targetScale = targetScale - parallelism
             else :
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False, fabric)
                 waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale)
@@ -529,7 +530,7 @@ def restartCommand(restartOptionsParser):
             scale(appName, targetScale)
             waitForTargetScale(appName, targetScale)
         for instance in tqdm.tqdm(instances):
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, False, fabric)
             time.sleep(2)
             if(instances.index(instance) == len(instances)-1) :
                 scale(appName, targetScale-1)
@@ -570,6 +571,7 @@ def scaleCommand(scaleOptionsParser):
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
     rangerOOR = scaleOptionsParser.rangeroor
+    fabric = scaleOptionsParser.fabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -594,7 +596,7 @@ def scaleCommand(scaleOptionsParser):
     for instance in instances:
         if instanceCount >= currentInstances:
             break
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+        killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
         time.sleep(2)
         currentInstances = currentInstances - 1
         print("Instance " + instance['id'] + " stop requested")
@@ -646,6 +648,7 @@ def killSingleAppInstance(killSingleAppConfig):
     grace = killSingleAppConfig.grace
     lbOOR = killSingleAppConfig.lboor
     rangerOOR = killSingleAppConfig.rangeroor
+    fabric = killSingleAppConfig.fabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -669,7 +672,7 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+    killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
     waitForTargetScale(appName, currentInstances - 1)
 
 def getUserPassword():
@@ -713,6 +716,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
+    restartOptionsParser.add_argument('-f', '--fabric', help='Set the argument to True if the app is a Fabric processor (-l and -r options are ignored)', type=bool, default=False)
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -722,6 +726,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    scaleOptionsParser.add_argument('-f', '--fabric', help='Set the argument to True if the app is a Fabric processor (-l and -r options are ignored)', type=bool, default=False)
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
@@ -742,6 +747,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to skip taking instance OOR in ranger', dest='rangeroor', action='store_false')
+    killInstanceOptionsParser.add_argument('-f', '--fabric', help='Set the argument to True if the app is a Fabric processor (-l and -r options are ignored)', type=bool, default=False)
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     #Destroy App
