@@ -246,11 +246,12 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
                 print("Close processor api returned 404")
             else:
                 print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+                return
         except ConnectionError:
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if rangerOOR and not fabric:
+    if rangerOOR:
         oorUrl=endpoint + "/tasks/ranger-oor"
         print("Calling " + oorUrl)
         try:
@@ -266,7 +267,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if lbOOR and not fabric:
+    if lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
         try:
