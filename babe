@@ -309,25 +309,23 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 else:
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
-            else:
-                oorUrl=endpoint + "/tasks/ranger-oor"
+            if rangerOOR:
+                oorUrl = endpoint + "/tasks/ranger-oor"
                 print("Calling " + oorUrl)
-
-                if rangerOOR:
-                    oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
-                    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                        print("Took node oor on ranger")
-                    else:
-                        print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-                        return
-                if lbOOR:
-                    loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-                    print("Calling " + loadbalancer_oor_url)
-                    oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
-                    if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                        print("Node is oor on loadbalancer")
-                    else:
-                        print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+                oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                else:
+                    print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    return
+            if lbOOR:
+                loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+                print("Calling " + loadbalancer_oor_url)
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                else:
+                    print("Loadbalancer oor api returned: [" + str(oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
 
         print("Waiting for grace period: " + str(grace) + " Second(s)")
         time.sleep(grace)
