@@ -181,7 +181,7 @@ def deployCommand(deployOptionsParser):
         jsonData = json.loads(data)
         appOwnerEmail = getAppOwnerEmail(jsonData)
         subject = "[Babe Alert] Deploying " + str(jsonData['id'])
-        content = "App: " + str(jsonData['id']) + "<br>" + "User: " + getpass.getuser()
+        content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(jsonData['id']) + "<br>" + "User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(jsonData['id'])
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -345,7 +345,7 @@ def destroyCommand(destroyAppOptionsParser):
     app=data['app']
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Destroying " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>" + "User: " + getpass.getuser()
+    content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>" + "User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -463,7 +463,7 @@ def restartCommand(restartOptionsParser):
     app=data['app']
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Restarting " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
+    content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -558,7 +558,7 @@ def scaleCommand(scaleOptionsParser):
 
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Scaling " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
+    content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -597,7 +597,7 @@ def suspendCommand(suspendOptionsParser):
     if keyboard_response == 'y':
         appOwnerEmail = getAppOwnerEmail(app)
         subject = "[Babe Alert] Suspending " + str(app['id'])
-        content = "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
+        content = "Endpoint: " + str(marathon) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -632,7 +632,7 @@ def killSingleAppInstance(killSingleAppConfig):
 
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Killing one instance of " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>instanceId: " + str(instanceId) + "<br>grace: " + str(grace) + "<br>User: " + getpass.getuser()
+    content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>instanceId: " + str(instanceId) + "<br>grace: " + str(grace) + "<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
