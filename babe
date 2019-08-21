@@ -597,7 +597,7 @@ def suspendCommand(suspendOptionsParser):
     if keyboard_response == 'y':
         appOwnerEmail = getAppOwnerEmail(app)
         subject = "[Babe Alert] Suspending " + str(app['id'])
-        content = "Endpoint: " + str(marathon) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
+        content = "Endpoint: " + str(marathon) + "<br>" + "App: " + str(app['id']) + "<br>grace: " + str(grace) + "<br>parallelism: " + str(parallelism) + "<br>User: " + getpass.getuser()
         if None == appOwnerEmail:
             content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
