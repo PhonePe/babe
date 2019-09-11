@@ -545,6 +545,7 @@ def scaleCommand(scaleOptionsParser):
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
     rangerOOR = scaleOptionsParser.rangeroor
+    parallelism = scaleOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -558,7 +559,7 @@ def scaleCommand(scaleOptionsParser):
 
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Scaling " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
+    content = "App: " + str(app['id']) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -566,15 +567,31 @@ def scaleCommand(scaleOptionsParser):
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
         return
-    for instance in instances:
-        if instanceCount >= currentInstances:
-            break
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
-        time.sleep(2)
-        currentInstances = currentInstances - 1
-        print("Instance " + instance['id'] + " stop requested")
-    scale(appName, instanceCount)
-    waitForTargetScale(appName, instanceCount)
+    if parallelism > 1:
+        if instanceCount > currentInstances:
+           while instanceCount > currentInstances:
+               targetScale = instanceCount + parallelism
+               if targetScale > instanceCount:
+                   targetScale = instanceCount
+               scale(appName, targetScale)
+               waitForTargetScale(appName, targetScale)
+               currentInstances = targetScale
+        else:
+            while instanceCount < currentInstances:
+                numberOfInstancesToKill = currentInstances - instanceCount
+                instancesToSuspend = instances[0:numberOfInstancesToKill]
+                suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
+                waitForTargetScale(appName, instanceCount)
+    else:
+        for instance in instances:
+            if instanceCount >= currentInstances:
+                break
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+            time.sleep(2)
+            currentInstances = currentInstances - 1
+            print("Instance " + instance['id'] + " stop requested")
+        scale(appName, instanceCount)
+        waitForTargetScale(appName, instanceCount)
 
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
@@ -697,6 +714,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
