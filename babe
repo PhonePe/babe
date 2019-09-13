@@ -580,6 +580,7 @@ def scaleCommand(scaleOptionsParser):
             while instanceCount < currentInstances:
                 numberOfInstancesToKill = currentInstances - instanceCount
                 instancesToSuspend = instances[0:numberOfInstancesToKill]
+                print(instancesToSuspend)
                 suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
                 waitForTargetScale(appName, instanceCount)
     else:
@@ -714,7 +715,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
-    restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
+    scaleOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
