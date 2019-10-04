@@ -125,7 +125,7 @@ def printApiError(r):
     except:
         print("Error: Marathon returned [" + str(r.status_code) + "] : " + r.text)
 
-def printInfoTable(apps, aliveOnly=False, deadOnly=False):
+def printInfoTable(apps, aliveOnly=False, deadOnly=False, searchTerm=None):
     rows=[]
     for app in apps:
         if True == aliveOnly and 0 == app['tasksHealthy']:
@@ -150,10 +150,14 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
             row.append(taskStats['running'])
             row.append(taskStats['staged'])
             row.append(colored("UP", 'green'))
-        rows.append(row)
+        if searchTerm:
+            if searchTerm in app['id']:
+                rows.append(row)
+        else:
+            rows.append(row)
     print(tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid'))
 
-def apps(aliveOnly, deadOnly):
+def apps(aliveOnly, deadOnly, searchTerm=None):
     params = {'embed' : 'apps.taskStats'}
     r = requests.get(url("/v2/apps"), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
@@ -161,13 +165,13 @@ def apps(aliveOnly, deadOnly):
         return
     apps = r.json()['apps']
     apps.sort(key=lambda x: x['id'])
-    printInfoTable(apps, aliveOnly=aliveOnly, deadOnly=deadOnly)
+    printInfoTable(apps, aliveOnly=aliveOnly, deadOnly=deadOnly, searchTerm=searchTerm)
 
 def listCommand(listArgParser):
     if listArgParser.up and listArgParser.down:
         print("Both 'up' and 'down' together doesn't make sense. Are you testing me? Don't...")
         return
-    apps(listArgParser.up, listArgParser.down)
+    apps(listArgParser.up, listArgParser.down, searchTerm=listArgParser.search)
 
 def deployCommand(deployOptionsParser):
     configFile=deployOptionsParser.config
@@ -699,6 +703,7 @@ if __name__ == "__main__":
     listOptionsParser = subparsers.add_parser('list', help='List running apps')
     listOptionsParser.add_argument('-u', '--up', help='Show only apps that are alive', action='store_true')
     listOptionsParser.add_argument('-d', '--down', help='Show only apps that are dead', action='store_true')
+    listOptionsParser.add_argument('-s', '--search', help='Show only apps that match the search term', default=None)
     listOptionsParser.set_defaults(func=listCommand)
 
     #Info
