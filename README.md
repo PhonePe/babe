@@ -23,7 +23,7 @@ babe -h
 
 Use _babe <command> -h_ to get command specific options.
 
-## Installtation
+## Installation
 Run the following to install the required dependencies:
 
 ```
