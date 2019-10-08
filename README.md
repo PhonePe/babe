@@ -10,7 +10,9 @@ The following operations are supported:
 * _restart_: Restart a service gracefully by taking nodes OOR on [Ranger](https://github.com/flipkart-incubator/ranger) while maintaining capacity
 * _scale_: Scale a service up or down by taking it OOR on Ranger gracefully
 * _suspend_: Suspend a service
+* _kill_: Suspend a service instance
 * _destroy_: Destroy a service
+* _decommission_: Decommission a Mesos slave
 
 ## Options and documentation
 
