@@ -38,6 +38,8 @@ sudo easy_install argparse requests time tabulate colored
 babe -e marathon.yourdomain.com:8080 list
 ```
 
+If you get `UnicodeEncodeError` exception, add `export PYTHONIOENCODING=utf-8:surrogateescape` in your `.bashrc` file and restart the terminal.
+
 ## Email option
 ```
 babe -C path_to_config_file -e marathon.yourdomain.com:8080 <yourAction>
