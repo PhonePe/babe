@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2015 Flipkart Internet Pvt. Ltd.
+# Copyright 2019 PhonePe Pvt. Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import getpass
 from tabulate import tabulate
 from termcolor import colored
 from requests.auth import HTTPBasicAuth
-from requests.exceptions import ConnectionError, HTTPError
+from requests.exceptions import ConnectionError
 import tqdm
 import warnings
 import traceback
@@ -44,6 +44,8 @@ httpsVerify = True
 defaultConfigPath="/etc/babe/config.yml"
 babeConfig = None
 disableEmail = False
+requestsTimeout = 5
+adminPort = 1
 
 def readConfig(configPath):
     try:
@@ -123,7 +125,7 @@ def printApiError(r):
     except:
         print("Error: Marathon returned [" + str(r.status_code) + "] : " + r.text)
 
-def printInfoTable(apps, aliveOnly=False, deadOnly=False):
+def printInfoTable(apps, aliveOnly=False, deadOnly=False, searchTerm=None):
     rows=[]
     for app in apps:
         if True == aliveOnly and 0 == app['tasksHealthy']:
@@ -148,10 +150,14 @@ def printInfoTable(apps, aliveOnly=False, deadOnly=False):
             row.append(taskStats['running'])
             row.append(taskStats['staged'])
             row.append(colored("UP", 'green'))
-        rows.append(row)
+        if searchTerm:
+            if searchTerm in app['id']:
+                rows.append(row)
+        else:
+            rows.append(row)
     print(tabulate(rows, headers=["App", "CPU", "Ram (MB)", "# Healthy", "# Unhealthy", "# Running", "# Deploying", "Status"], tablefmt='fancy_grid'))
 
-def apps(aliveOnly, deadOnly):
+def apps(aliveOnly, deadOnly, searchTerm=None):
     params = {'embed' : 'apps.taskStats'}
     r = requests.get(url("/v2/apps"), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
@@ -159,13 +165,13 @@ def apps(aliveOnly, deadOnly):
         return
     apps = r.json()['apps']
     apps.sort(key=lambda x: x['id'])
-    printInfoTable(apps, aliveOnly=aliveOnly, deadOnly=deadOnly)
+    printInfoTable(apps, aliveOnly=aliveOnly, deadOnly=deadOnly, searchTerm=searchTerm)
 
 def listCommand(listArgParser):
     if listArgParser.up and listArgParser.down:
         print("Both 'up' and 'down' together doesn't make sense. Are you testing me? Don't...")
         return
-    apps(listArgParser.up, listArgParser.down)
+    apps(listArgParser.up, listArgParser.down, searchTerm=listArgParser.search)
 
 def deployCommand(deployOptionsParser):
     configFile=deployOptionsParser.config
@@ -211,7 +217,7 @@ def isInstanceHealthy(instance):
 
 def adminEndpoint(instance):
     if 'ports' in instance and len(instance['ports']) >= 2:
-        return "http://" + instance['host'] + ":" + str(instance['ports'][1])
+        return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
     return None
 
 def getAppInfo(appName):
@@ -229,17 +235,33 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
     endpoint=adminEndpoint(instance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
 
+    if fabric:
+        closeProcessorUrl = endpoint + "/close-processors"
+        print("Calling " + closeProcessorUrl)
+        try:
+            closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
+            if 200 == closeProcessorResponse.status_code:
+                print("Closed processor")
+            elif 404 == closeProcessorResponse.status_code:
+                print("Close processor api returned 404")
+            else:
+                print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+                return
+        except ConnectionError:
+            print("Skipping connection error - exposed admin port may be invalid ?!")
+            pass
+
     if rangerOOR:
         oorUrl=endpoint + "/tasks/ranger-oor"
         print("Calling " + oorUrl)
         try:
-            oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+            oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
             if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
                 print("Took node oor on ranger")
             elif 404 == oorResponse.status_code:
@@ -255,7 +277,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
         try:
-            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=5)
+            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
             if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
                 print("Node is oor on loadbalancer")
             elif 404 == oorResponse.status_code:
@@ -276,18 +298,27 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale):
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
-
-def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale):
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, fabric=False):
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
             endpoint=adminEndpoint(instance)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
-            oorUrl=endpoint + "/tasks/ranger-oor"
-            print("Calling " + oorUrl)
 
+            if fabric:
+                closeProcessorUrl = endpoint + "/close-processors"
+                print("Calling " + closeProcessorUrl)
+
+                closeProcessorResponse = requests.put(closeProcessorUrl, auth=httpBasicCreds, verify=httpsVerify)
+                if 200 == closeProcessorResponse.status_code:
+                    print("Closed processor")
+                else:
+                    print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
+                    return
             if rangerOOR:
+                oorUrl = endpoint + "/tasks/ranger-oor"
+                print("Calling " + oorUrl)
                 oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
                     print("Took node oor on ranger")
@@ -306,7 +337,6 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
         print("Waiting for grace period: " + str(grace) + " Second(s)")
         time.sleep(grace)
         deleteBatchInstance(appName, instances[i:i+parallelism], scale)
-
 
 def deleteBatchInstance(appName, instances, scale):
     ids = []
@@ -455,6 +485,7 @@ def restartCommand(restartOptionsParser):
     lbOOR = restartOptionsParser.lboor
     rangerOOR = restartOptionsParser.rangeroor
     parallelism = restartOptionsParser.parallelism
+    fabric = restartOptionsParser.isfabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -489,10 +520,10 @@ def restartCommand(restartOptionsParser):
             instances_batch = instances[i:i+parallelism]
             if(i+parallelism > len(instances)-parallelism and len(instances_batch) == parallelism) :
                 print("suspending with scale down")
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True)
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True, fabric)
                 targetScale = targetScale - parallelism
             else :
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False)
+                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False, fabric)
                 waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale)
@@ -504,7 +535,7 @@ def restartCommand(restartOptionsParser):
             scale(appName, targetScale)
             waitForTargetScale(appName, targetScale)
         for instance in tqdm.tqdm(instances):
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, False)
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, False, fabric)
             time.sleep(2)
             if(instances.index(instance) == len(instances)-1) :
                 scale(appName, targetScale-1)
@@ -545,6 +576,7 @@ def scaleCommand(scaleOptionsParser):
     grace = scaleOptionsParser.grace
     lbOOR = scaleOptionsParser.lboor
     rangerOOR = scaleOptionsParser.rangeroor
+    fabric = scaleOptionsParser.isfabric
     parallelism = scaleOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
@@ -587,7 +619,7 @@ def scaleCommand(scaleOptionsParser):
         for instance in instances:
             if instanceCount >= currentInstances:
                 break
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
             time.sleep(2)
             currentInstances = currentInstances - 1
             print("Instance " + instance['id'] + " stop requested")
@@ -601,6 +633,7 @@ def suspendCommand(suspendOptionsParser):
     rangerOOR = suspendOptionsParser.rangeroor
     destroy = suspendOptionsParser.destroy
     parallelism = suspendOptionsParser.parallelism
+    fabric = suspendOptionsParser.isfabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -621,17 +654,16 @@ def suspendCommand(suspendOptionsParser):
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
         if parallelism > 1:
-            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True)
+            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True, fabric)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
-                killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+                killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
                 time.sleep(2)
                 currentInstances = currentInstances - 1
             waitForTargetScale(appName, 0)
         if destroy:
             destroyApp(appName, force=True)
-
 
 def killSingleAppInstance(killSingleAppConfig):
     appName = killSingleAppConfig.app
@@ -639,6 +671,7 @@ def killSingleAppInstance(killSingleAppConfig):
     grace = killSingleAppConfig.grace
     lbOOR = killSingleAppConfig.lboor
     rangerOOR = killSingleAppConfig.rangeroor
+    fabric = killSingleAppConfig.isfabric
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -662,7 +695,7 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, rangerOOR, lbOOR, True)
+    killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
     waitForTargetScale(appName, currentInstances - 1)
 
 def getUserPassword():
@@ -679,6 +712,8 @@ if __name__ == "__main__":
     parser.add_argument('-k', '--ssl-insecure', help='Skip SSL Check', dest='sslVerify', action='store_false')
     parser.add_argument('-U', '--user', help='HTTP Basic authentication username ( password will be asked via prompt )', default="", required=False)
     parser.add_argument('-C', '--configuration', help='Babe configuration file path', default=defaultConfigPath, required=False)
+    parser.add_argument('-t', '--requests-timeout', help='Timeout value for requests', type=int, dest='requestsTimeout', default=5)
+    parser.add_argument('-ap', '--admin-port', help='Admin port index', type=int, dest='adminPort', default=1)
 
     subparsers = parser.add_subparsers(help='Available operations')
 
@@ -686,6 +721,7 @@ if __name__ == "__main__":
     listOptionsParser = subparsers.add_parser('list', help='List running apps')
     listOptionsParser.add_argument('-u', '--up', help='Show only apps that are alive', action='store_true')
     listOptionsParser.add_argument('-d', '--down', help='Show only apps that are dead', action='store_true')
+    listOptionsParser.add_argument('-s', '--search', help='Show only apps that match the search term', default=None)
     listOptionsParser.set_defaults(func=listCommand)
 
     #Info
@@ -706,6 +742,7 @@ if __name__ == "__main__":
     restartOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     restartOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     restartOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
+    restartOptionsParser.add_argument('-f', '--fabric', help='Whether it is a Fabric processor', dest='isfabric', action='store_true')
     restartOptionsParser.set_defaults(func=restartCommand)
 
     #Scale
@@ -715,6 +752,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
+    scaleOptionsParser.add_argument('-f', '--fabric', help='Whether it is a Fabric processor', dest='isfabric', action='store_true')
     scaleOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
@@ -726,6 +764,7 @@ if __name__ == "__main__":
     suspendOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     suspendOptionsParser.add_argument('-d', '--destroy', help='If this flag is set, then the app will be destroyed after suspension if it has zero instances running', dest='destroy', action='store_true', default=False)
     suspendOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
+    suspendOptionsParser.add_argument('-f', '--fabric', help='Whether it is a Fabric processor', dest='isfabric', action='store_true')
     suspendOptionsParser.set_defaults(func=suspendCommand)
 
     #Kill Instance
@@ -735,6 +774,7 @@ if __name__ == "__main__":
     killInstanceOptionsParser.add_argument('-g', '--grace', help='Grace period to sleep for before killing the process', type=int, default=35)
     killInstanceOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     killInstanceOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to skip taking instance OOR in ranger', dest='rangeroor', action='store_false')
+    killInstanceOptionsParser.add_argument('-f', '--fabric', help='Whether it is a Fabric processor', dest='isfabric', action='store_true')
     killInstanceOptionsParser.set_defaults(func=killSingleAppInstance)
 
     #Destroy App
@@ -758,4 +798,6 @@ if __name__ == "__main__":
         httpBasicCreds = HTTPBasicAuth(parsed.user, password)
     httpsVerify = parsed.sslVerify
     protocol = parsed.protocol
+    requestsTimeout = parsed.requestsTimeout
+    adminPort = parsed.adminPort
     parsed.func(parsed)
