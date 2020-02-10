@@ -609,12 +609,11 @@ def scaleCommand(scaleOptionsParser):
                waitForTargetScale(appName, targetScale)
                currentInstances = targetScale
         else:
-            while instanceCount < currentInstances:
-                numberOfInstancesToKill = currentInstances - instanceCount
-                instancesToSuspend = instances[0:numberOfInstancesToKill]
-                print(instancesToSuspend)
-                suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
-                waitForTargetScale(appName, instanceCount)
+            numberOfInstancesToKill = currentInstances - instanceCount
+            instancesToSuspend = instances[0:numberOfInstancesToKill]
+            print(instancesToSuspend)
+            suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
+            waitForTargetScale(appName, instanceCount)
     else:
         for instance in instances:
             if instanceCount >= currentInstances:
