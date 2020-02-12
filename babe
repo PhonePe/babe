@@ -432,6 +432,9 @@ def decommission(mesosMasterEndpoint, hostname):
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
     failures = []
+    apps_to_scale = dict()
+    for task in candidate_tasks:
+        apps_to_scale[task['appName']] = len(getInstanceList(task['appName']))
     if skipped_tasks:
         print("Skipping suspend of following apps because they are running with only one instance \n{0}"
             .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
@@ -452,15 +455,13 @@ def decommission(mesosMasterEndpoint, hostname):
     if failures:
         print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
     else:
-        all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n]\nWill scale all apps to 1 if responded y")
-        if(all_slaves_killed == 'y'):
-            apps_to_scale = set()
-            for task in candidate_tasks:
-                apps_to_scale.add(task['appName'])
+        all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
+        if all_slaves_killed == 'y':
             for appName in tqdm.tqdm(apps_to_scale):
-                print("scaling app: {0} to 1.".format(appName))
-                scale(appName, 1)
-                waitForTargetScale(appName, 1)
+                scale_value = apps_to_scale.get(appName) + 1
+                print("scaling app: {0} to {1}.".format(appName, scale_value))
+                scale(appName, scale_value)
+                waitForTargetScale(appName, scale_value)
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
