@@ -454,10 +454,13 @@ def decommission(mesosMasterEndpoint, hostname):
     else:
         all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n]\nWill scale all apps to 1 if responded y")
         if(all_slaves_killed == 'y'):
-            for task in tqdm.tqdm(candidate_tasks):
-                print("scaling app: {0} to 1.".format(task['appName']))
-                scale(task['appName'], 1)
-                waitForTargetScale(task['appName'], 1)
+            apps_to_scale = set()
+            for task in candidate_tasks:
+                apps_to_scale.add(task['appName'])
+            for appName in tqdm.tqdm(apps_to_scale):
+                print("scaling app: {0} to 1.".format(appName))
+                scale(appName, 1)
+                waitForTargetScale(appName, 1)
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
