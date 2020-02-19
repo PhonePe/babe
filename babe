@@ -432,6 +432,9 @@ def decommission(mesosMasterEndpoint, hostname):
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
     failures = []
+    apps_to_scale = dict()
+    for task in candidate_tasks:
+        apps_to_scale[task['appName']] = len(getInstanceList(task['appName']))
     if skipped_tasks:
         print("Skipping suspend of following apps because they are running with only one instance \n{0}"
             .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
@@ -451,6 +454,14 @@ def decommission(mesosMasterEndpoint, hostname):
             #failures.append({'appName': task['appName'], 'taskId': task['taskId']})
     if failures:
         print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
+    else:
+        all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
+        if all_slaves_killed == 'y':
+            for appName in tqdm.tqdm(apps_to_scale):
+                scale_value = apps_to_scale.get(appName)
+                print("scaling app: {0} to {1}.".format(appName, scale_value))
+                scale(appName, scale_value)
+                waitForTargetScale(appName, scale_value)
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
@@ -509,7 +520,7 @@ def restartCommand(restartOptionsParser):
         maxAllowedParallelism = int(targetScale/2)
         if(maxAllowedParallelism<1) :
             maxAllowedParallelism = 1
-        if parallelism >= maxAllowedParallelism:
+        if parallelism > maxAllowedParallelism:
             print("parallelism can not be more than " + str(maxAllowedParallelism))
             return
         if restartOptionsParser.noScaling == False:
@@ -518,13 +529,13 @@ def restartCommand(restartOptionsParser):
             waitForTargetScale(appName, targetScale)
         for i in tqdm.tqdm(range(0, len(instances), parallelism)):
             instances_batch = instances[i:i+parallelism]
-            if(i+parallelism > len(instances)-parallelism and len(instances_batch) == parallelism) :
-                print("suspending with scale down")
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True, fabric)
-                targetScale = targetScale - parallelism
-            else :
+            if i + parallelism > len(instances) - parallelism and len(instances_batch) == parallelism and restartOptionsParser.noScaling == False:
+                    print("suspending with scale down")
+                    suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True, fabric)
+                    targetScale = targetScale - parallelism
+            else:
                 suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False, fabric)
-                waitForTargetScale(appName, targetScale)
+            waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale)
             waitForTargetScale(appName, targetScale)
@@ -537,10 +548,13 @@ def restartCommand(restartOptionsParser):
         for instance in tqdm.tqdm(instances):
             killInstance(appName, instance, grace, rangerOOR, lbOOR, False, fabric)
             time.sleep(2)
-            if(instances.index(instance) == len(instances)-1) :
-                scale(appName, targetScale-1)
-                waitForTargetScale(appName, targetScale-1)
-            else :
+            if (instances.index(instance) == len(instances) - 1):
+                if restartOptionsParser.noScaling == False:
+                    scale(appName, targetScale - 1)
+                    waitForTargetScale(appName, targetScale - 1)
+                else:
+                    waitForTargetScale(appName, targetScale)
+            else:
                 waitForTargetScale(appName, targetScale)
             print("Instance " + instance['id'] + " replaced")
         if restartOptionsParser.noScaling == False:
@@ -577,6 +591,7 @@ def scaleCommand(scaleOptionsParser):
     lbOOR = scaleOptionsParser.lboor
     rangerOOR = scaleOptionsParser.rangeroor
     fabric = scaleOptionsParser.isfabric
+    parallelism = scaleOptionsParser.parallelism
     r = getAppInfo(appName)
     if None == r:
         print("Error: No such app:" + appName)
@@ -590,7 +605,7 @@ def scaleCommand(scaleOptionsParser):
 
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Scaling " + str(app['id'])
-    content = "App: " + str(app['id']) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>User: " + getpass.getuser()
+    content = "App: " + str(app['id']) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "currentInstances: "+str(currentInstances)+"<br>scale to: "+str(instanceCount)+"<br>grace: "+str(grace)+"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
@@ -598,15 +613,30 @@ def scaleCommand(scaleOptionsParser):
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
         return
-    for instance in instances:
-        if instanceCount >= currentInstances:
-            break
-        killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
-        time.sleep(2)
-        currentInstances = currentInstances - 1
-        print("Instance " + instance['id'] + " stop requested")
-    scale(appName, instanceCount)
-    waitForTargetScale(appName, instanceCount)
+    if parallelism > 1:
+        if instanceCount > currentInstances:
+           while instanceCount > currentInstances:
+               targetScale = instanceCount + parallelism
+               if targetScale > instanceCount:
+                   targetScale = instanceCount
+               scale(appName, targetScale)
+               waitForTargetScale(appName, targetScale)
+               currentInstances = targetScale
+        else:
+            numberOfInstancesToKill = currentInstances - instanceCount
+            instancesToSuspend = instances[0:numberOfInstancesToKill]
+            suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
+            waitForTargetScale(appName, instanceCount)
+    else:
+        for instance in instances:
+            if instanceCount >= currentInstances:
+                break
+            killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
+            time.sleep(2)
+            currentInstances = currentInstances - 1
+            print("Instance " + instance['id'] + " stop requested")
+        scale(appName, instanceCount)
+        waitForTargetScale(appName, instanceCount)
 
 def suspendCommand(suspendOptionsParser):
     appName = suspendOptionsParser.app
@@ -735,6 +765,7 @@ if __name__ == "__main__":
     scaleOptionsParser.add_argument('-l', '--lb-oor', help='Whether to take it OOR in load balancer as well', dest='lboor', action='store_true')
     scaleOptionsParser.add_argument('-r', '--ranger-oor', help='Whether to take it OOR in ranger as well', dest='rangeroor', action='store_false')
     scaleOptionsParser.add_argument('-f', '--fabric', help='Whether it is a Fabric processor', dest='isfabric', action='store_true')
+    scaleOptionsParser.add_argument('-pl', '--parallelism', help='number of parallel process to execute this command', type=int, default=1)
     scaleOptionsParser.set_defaults(func=scaleCommand)
 
     #Suspend
