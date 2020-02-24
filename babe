@@ -215,9 +215,11 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def adminEndpoint(instance):
+def adminEndpoint(instance, isNodeInstance):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
+    elif isNodeInstance:
+        return "http://" + instance['host'] + ":" + str(instance['ports'][0])
     return None
 
 def getAppInfo(appName):
@@ -228,6 +230,18 @@ def getAppInfo(appName):
         return None
     return r
 
+def isNodeApp(appName):
+    r = getAppInfo(appName)
+    if None == r:
+        print("No app: " + appName)
+        return False
+    data=r.json()
+    app=data['app']
+    env = app['env']
+    if 'NODE_ENV' in env:
+        return True
+    return False
+
 def scale(appName, scale, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == r.status_code:
@@ -236,7 +250,8 @@ def scale(appName, scale, force=False):
         printApiError(r)
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
-    endpoint=adminEndpoint(instance)
+    isNodeInstance = isNodeApp(appName)
+    endpoint=adminEndpoint(instance, isNodeInstance)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -258,7 +273,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
             pass
 
     if rangerOOR:
-        oorUrl=endpoint + "/tasks/ranger-oor"
+        oorUrl=endpoint + ("/tasks/ranger-oor" if not isNodeInstance else "/internal/oor")
         print("Calling " + oorUrl)
         try:
             oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
@@ -299,9 +314,10 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, fabric=False):
+    isNodeInstance = isNodeApp(appName)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint=adminEndpoint(instance)
+            endpoint=adminEndpoint(instance, isNodeInstance)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
@@ -317,7 +333,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
             if rangerOOR:
-                oorUrl = endpoint + "/tasks/ranger-oor"
+                oorUrl = endpoint + ("/tasks/ranger-oor" if not isNodeInstance else "/internal/oor")
                 print("Calling " + oorUrl)
                 oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
