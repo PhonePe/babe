@@ -46,6 +46,8 @@ babeConfig = None
 disableEmail = False
 requestsTimeout = 5
 adminPort = 1
+instancePort = 0
+isNodeAppCache = dict()
 
 def readConfig(configPath):
     try:
@@ -215,14 +217,11 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def adminEndpoint(instance):
+def oorEndpoint(instance, appName):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
-    return None
-
-def instanceEndpoint(instance):
-    if 'ports' in instance and len(instance['ports']) >= 1:
-        return "http://" + instance['host'] + ":" + str(instance['ports'][0])
+    elif isNodeApp(appName) and 'ports' in instance and len(instance['ports']) >= 1:
+        return "http://" + instance['host'] + ":" + str(instance['ports'][instancePort])
     return None
 
 def getAppInfo(appName):
@@ -234,6 +233,8 @@ def getAppInfo(appName):
     return r
 
 def isNodeApp(appName):
+    if appName in isNodeAppCache:
+        return isNodeAppCache[appName]
     r = getAppInfo(appName)
     if None == r:
         print("No app: " + appName)
@@ -241,9 +242,11 @@ def isNodeApp(appName):
     data=r.json()
     app=data['app']
     env = app['env']
+    nodeApp = False
     if 'NODE_ENV' in env:
-        return True
-    return False
+        nodeApp = True
+    isNodeAppCache[appName] = nodeApp
+    return nodeApp
 
 def scale(appName, scale, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
@@ -254,7 +257,7 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
     isNodeInstance = isNodeApp(appName)
-    endpoint = (adminEndpoint(instance) if not isNodeInstance else instanceEndpoint(instance))
+    endpoint = oorEndpoint(instance, appName)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -320,7 +323,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
     isNodeInstance = isNodeApp(appName)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint = (adminEndpoint(instance) if not isNodeInstance else instanceEndpoint(instance))
+            endpoint = oorEndpoint(instance, appName)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
