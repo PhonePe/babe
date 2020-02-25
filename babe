@@ -215,10 +215,13 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def adminEndpoint(instance, isNodeInstance):
+def adminEndpoint(instance):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
-    elif isNodeInstance:
+    return None
+
+def instanceEndpoint(instance):
+    if 'ports' in instance and len(instance['ports']) >= 1:
         return "http://" + instance['host'] + ":" + str(instance['ports'][0])
     return None
 
@@ -251,7 +254,7 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
     isNodeInstance = isNodeApp(appName)
-    endpoint=adminEndpoint(instance, isNodeInstance)
+    endpoint = (adminEndpoint(instance) if isNodeInstance else instanceEndpoint(instance))
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -317,7 +320,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
     isNodeInstance = isNodeApp(appName)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint=adminEndpoint(instance, isNodeInstance)
+            endpoint = (adminEndpoint(instance) if isNodeInstance else instanceEndpoint(instance))
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
