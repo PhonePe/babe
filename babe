@@ -254,7 +254,7 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
     isNodeInstance = isNodeApp(appName)
-    endpoint = (adminEndpoint(instance) if isNodeInstance else instanceEndpoint(instance))
+    endpoint = (adminEndpoint(instance) if not isNodeInstance else instanceEndpoint(instance))
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -320,7 +320,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
     isNodeInstance = isNodeApp(appName)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint = (adminEndpoint(instance) if isNodeInstance else instanceEndpoint(instance))
+            endpoint = (adminEndpoint(instance) if not isNodeInstance else instanceEndpoint(instance))
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
