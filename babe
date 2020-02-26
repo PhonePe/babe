@@ -247,12 +247,11 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=False, fabric=False):
     endpoint = adminEndpoint(instance)
-    rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
-    if None == endpoint and None == rangerOorUrl:
+    if not isNodeApp and None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
 
-    if endpoint != None and fabric:
+    if not isNodeApp and fabric:
         closeProcessorUrl = endpoint + "/close-processors"
         print("Calling " + closeProcessorUrl)
         try:
@@ -269,6 +268,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
             pass
 
     if rangerOOR:
+        rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
         print("Calling " + rangerOorUrl)
         try:
             oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
@@ -283,7 +283,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if endpoint != None and lbOOR:
+    if not isNodeApp and lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
         try:
@@ -312,12 +312,11 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
             endpoint = adminEndpoint(instance)
-            rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
-            if None == endpoint and None == rangerOorUrl:
+            if not isNodeApp and None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
 
-            if endpoint != None and fabric:
+            if not isNodeApp and fabric:
                 closeProcessorUrl = endpoint + "/close-processors"
                 print("Calling " + closeProcessorUrl)
 
@@ -328,6 +327,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
             if rangerOOR:
+                rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
                 print("Calling " + rangerOorUrl)
                 oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
@@ -335,7 +335,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 else:
                     print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
                     return
-            if endpoint != None and lbOOR:
+            if not isNodeApp and lbOOR:
                 loadbalancer_oor_url = endpoint + "/tasks/OorTask"
                 print("Calling " + loadbalancer_oor_url)
                 oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
