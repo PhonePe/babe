@@ -47,7 +47,6 @@ disableEmail = False
 requestsTimeout = 5
 adminPort = 1
 instancePort = 0
-isNodeAppCache = dict()
 
 def readConfig(configPath):
     try:
@@ -217,10 +216,10 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def oorEndpoint(instance, appName):
+def oorEndpoint(instance, isNodeApp=False):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
-    elif isNodeApp(appName) and 'ports' in instance and len(instance['ports']) >= 1:
+    elif isNodeApp and 'ports' in instance and len(instance['ports']) >= 1:
         return "http://" + instance['host'] + ":" + str(instance['ports'][instancePort])
     return None
 
@@ -232,22 +231,6 @@ def getAppInfo(appName):
         return None
     return r
 
-def isNodeApp(appName):
-    if appName in isNodeAppCache:
-        return isNodeAppCache[appName]
-    r = getAppInfo(appName)
-    if None == r:
-        print("No app: " + appName)
-        return False
-    data=r.json()
-    app=data['app']
-    env = app['env']
-    nodeApp = False
-    if 'NODE_ENV' in env:
-        nodeApp = True
-    isNodeAppCache[appName] = nodeApp
-    return nodeApp
-
 def scale(appName, scale, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
     if 200 == r.status_code:
@@ -255,9 +238,8 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
-    isNodeInstance = isNodeApp(appName)
-    endpoint = oorEndpoint(instance, appName)
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False, isNodeApp=False):
+    endpoint = oorEndpoint(instance, isNodeApp)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -279,7 +261,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
             pass
 
     if rangerOOR:
-        oorUrl=endpoint + ("/tasks/ranger-oor" if not isNodeInstance else "/internal/oor")
+        oorUrl=endpoint + ("/tasks/ranger-oor" if not isNodeApp else "/internal/oor")
         print("Calling " + oorUrl)
         try:
             oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
@@ -320,10 +302,9 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
 def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, fabric=False):
-    isNodeInstance = isNodeApp(appName)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint = oorEndpoint(instance, appName)
+            endpoint = oorEndpoint(instance)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
@@ -339,7 +320,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
             if rangerOOR:
-                oorUrl = endpoint + ("/tasks/ranger-oor" if not isNodeInstance else "/internal/oor")
+                oorUrl = endpoint + "/tasks/ranger-oor"
                 print("Calling " + oorUrl)
                 oorResponse=requests.post(oorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
@@ -417,7 +398,7 @@ def getMesosSlaveId(mesosMasterEndpoint, hostname):
         else:
             return slaves[0]
 
-def getInstanceList(appName):
+def getInstanceInfo(appName):
     r = getAppInfo(appName)
     if None == r:
         print("No app: " + appName)
@@ -425,12 +406,14 @@ def getInstanceList(appName):
     data=r.json()
     app=data['app']
     instances = app['tasks']
-    return instances
+    env = app['env']
+    return {'instanceList': instances, 'env': env}
 
 def getTaskInstance(task, filter):
-    instances = getInstanceList(task['appId'])
-    if filter(instances):
-        return {'appName': task['appId'], 'taskId': task['id'], 'instance': task}
+    instanceInfo = getInstanceInfo(task['appId'])
+    isNodeApp = ('NODE_ENV' in instanceInfo['env'])
+    if filter(instanceInfo['instanceList']):
+        return {'appName': task['appId'], 'taskId': task['id'], 'isNodeApp': isNodeApp, 'instance': task}
 
 def decommission(mesosMasterEndpoint, hostname):
     if not mesosMasterEndpoint:
@@ -456,7 +439,7 @@ def decommission(mesosMasterEndpoint, hostname):
     failures = []
     apps_to_scale = dict()
     for task in candidate_tasks:
-        apps_to_scale[task['appName']] = len(getInstanceList(task['appName']))
+        apps_to_scale[task['appName']] = len(getInstanceInfo(task['appName'])['instanceList'])
     if skipped_tasks:
         print("Skipping suspend of following apps because they are running with only one instance \n{0}"
             .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
@@ -465,7 +448,7 @@ def decommission(mesosMasterEndpoint, hostname):
     for task in tqdm.tqdm(candidate_tasks):
         print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
         try:
-            killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True)
+            killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True, isNodeApp=task['isNodeApp'])
         except KeyboardInterrupt:
             print("Received <CTRL-C> stopping everything")
             exit(1)
