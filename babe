@@ -252,7 +252,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
         print("No admin port info in instance: " + instance['id'])
         return
 
-    if fabric:
+    if endpoint != None and fabric:
         closeProcessorUrl = endpoint + "/close-processors"
         print("Calling " + closeProcessorUrl)
         try:
@@ -268,7 +268,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if rangerOOR:
+    if rangerOorUrl != None and rangerOOR:
         print("Calling " + rangerOorUrl)
         try:
             oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
@@ -283,7 +283,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if lbOOR:
+    if endpoint != None and lbOOR:
         loadbalancer_oor_url = endpoint + "/tasks/OorTask"
         print("Calling " + loadbalancer_oor_url)
         try:
@@ -317,7 +317,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 print("No admin port info in instance: " + instance['id'])
                 return
 
-            if fabric:
+            if endpoint != None and fabric:
                 closeProcessorUrl = endpoint + "/close-processors"
                 print("Calling " + closeProcessorUrl)
 
@@ -327,7 +327,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 else:
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
-            if rangerOOR:
+            if rangerOorUrl != None and rangerOOR:
                 print("Calling " + rangerOorUrl)
                 oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
@@ -335,7 +335,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 else:
                     print("OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
                     return
-            if lbOOR:
+            if endpoint != None and lbOOR:
                 loadbalancer_oor_url = endpoint + "/tasks/OorTask"
                 print("Calling " + loadbalancer_oor_url)
                 oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify)
@@ -405,6 +405,12 @@ def getMesosSlaveId(mesosMasterEndpoint, hostname):
         else:
             return slaves[0]
 
+def getIsNodeAppFromApp(app):
+    if 'env' in app:
+        env = app['env']
+        return (type(env) is dict and 'NODE_ENV' in env)
+    return False
+
 def getInstanceInfo(appName):
     r = getAppInfo(appName)
     if None == r:
@@ -413,17 +419,13 @@ def getInstanceInfo(appName):
     data=r.json()
     app=data['app']
     instances = app['tasks']
-    env = app['env']
-    return {'instanceList': instances, 'env': env}
-
-def getIsNodeAppFromEnv(env):
-    return (type(env) is dict and 'NODE_ENV' in env)
+    isNodeApp = getIsNodeAppFromApp(app)
+    return {'instanceList': instances, 'isNodeApp': isNodeApp}
 
 def getTaskInstance(task, filter):
     instanceInfo = getInstanceInfo(task['appId'])
-    isNodeApp = getIsNodeAppFromEnv(instanceInfo['env'])
     if filter(instanceInfo['instanceList']):
-        return {'appName': task['appId'], 'taskId': task['id'], 'isNodeApp': isNodeApp, 'instance': task}
+        return {'appName': task['appId'], 'taskId': task['id'], 'isNodeApp': instanceInfo['isNodeApp'], 'instance': task}
 
 def decommission(mesosMasterEndpoint, hostname):
     if not mesosMasterEndpoint:
@@ -519,7 +521,7 @@ def restartCommand(restartOptionsParser):
     data=r.json()
     app=data['app']
     appOwnerEmail = getAppOwnerEmail(app)
-    isNodeApp = getIsNodeAppFromEnv(app['env'])
+    isNodeApp = getIsNodeAppFromApp(app)
     subject = "[Babe Alert] Restarting " + str(app['id'])
     content = "App: " + str(app['id']) + "<br>" + "Endpoint: " + str(marathon) + "<br>" + "grace: "+ str(grace) +"<br>parallelism: "+str(parallelism)+"<br>User: " + getpass.getuser()
     if None == appOwnerEmail:
@@ -626,7 +628,7 @@ def scaleCommand(scaleOptionsParser):
         content = content + "<br> Warning: No app owner registered for "+ str(app['id'])
     sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
-    isNodeApp = getIsNodeAppFromEnv(app['env'])
+    isNodeApp = getIsNodeAppFromApp(app)
     if instanceCount == currentInstances:
         print("Nothing to do. Already at: " + str(currentInstances))
         return
@@ -672,7 +674,7 @@ def suspendCommand(suspendOptionsParser):
     sortInstancesByStagingTime(app)
     instances = app['tasks']
     currentInstances = len(instances)
-    isNodeApp = getIsNodeAppFromEnv(app['env'])
+    isNodeApp = getIsNodeAppFromApp(app)
 
     keyboard_response = raw_input("Commencing suspend operation.... Are you sure [y/n]? ")
     if keyboard_response == 'y':
@@ -710,7 +712,7 @@ def killSingleAppInstance(killSingleAppConfig):
     app=data['app']
     instances = app['tasks']
     candidateInstance = None
-    isNodeApp = getIsNodeAppFromEnv(app['env'])
+    isNodeApp = getIsNodeAppFromApp(app)
 
     appOwnerEmail = getAppOwnerEmail(app)
     subject = "[Babe Alert] Killing one instance of " + str(app['id'])
