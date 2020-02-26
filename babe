@@ -47,7 +47,6 @@ disableEmail = False
 requestsTimeout = 5
 adminPort = 1
 instancePort = 0
-isNodeAppCache = dict()
 
 def readConfig(configPath):
     try:
@@ -217,36 +216,36 @@ def loadInstance(instance, rows):
 def isInstanceHealthy(instance):
     return 'healthCheckResults' in instance and len(instance['healthCheckResults']) > 0 and instance['healthCheckResults'][0]['alive'] == True
 
-def oorEndpoint(instance, appName):
+def oorEndpoint(instance, appName, appInfoCache):
     if 'ports' in instance and len(instance['ports']) >= 2:
         return "http://" + instance['host'] + ":" + str(instance['ports'][adminPort])
-    elif isNodeApp(appName) and 'ports' in instance and len(instance['ports']) >= 1:
+    elif isNodeApp(appName, appInfoCache) and 'ports' in instance and len(instance['ports']) >= 1:
         return "http://" + instance['host'] + ":" + str(instance['ports'][instancePort])
     return None
 
-def getAppInfo(appName):
+def getAppInfo(appName, appInfoCache):
+    if type(appInfoCache) is dict and appName in appInfoCache:
+        return appInfoCache[appName]
     params = {'embed' : ['apps.taskStats', 'apps.deployments']}
     r = requests.get(url("/v2/apps/" + appName), params=params, auth=httpBasicCreds, verify=httpsVerify)
     if 200 != r.status_code:
         printApiError(r)
         return None
+    if type(appInfoCache) is dict:
+        appInfoCache[appName] = r
     return r
 
-def isNodeApp(appName):
-    if appName in isNodeAppCache:
-        return isNodeAppCache[appName]
-    r = getAppInfo(appName)
+def isNodeApp(appName, appInfoCache):
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("No app: " + appName)
         return False
     data=r.json()
     app=data['app']
     env = app['env']
-    nodeApp = False
     if 'NODE_ENV' in env:
-        nodeApp = True
-    isNodeAppCache[appName] = nodeApp
-    return nodeApp
+        return True
+    return False
 
 def scale(appName, scale, force=False):
     r = requests.put(url("/v2/apps/"+appName), data= json.dumps({'instances' : scale}), headers = {'content-type': 'application/json'}, auth=httpBasicCreds, verify=httpsVerify)
@@ -255,9 +254,9 @@ def scale(appName, scale, force=False):
     else:
         printApiError(r)
 
-def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False):
-    isNodeInstance = isNodeApp(appName)
-    endpoint = oorEndpoint(instance, appName)
+def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, appInfoCache, fabric=False):
+    isNodeInstance = isNodeApp(appName, appInfoCache)
+    endpoint = oorEndpoint(instance, appName, appInfoCache)
     if None == endpoint:
         print("No admin port info in instance: " + instance['id'])
         return
@@ -319,11 +318,11 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, fabric=False
     else:
         print("Kill api returned: [" + str(killResponse.status_code) + "] " + killResponse.text)
 
-def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, fabric=False):
-    isNodeInstance = isNodeApp(appName)
+def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, scale, appInfoCache, fabric=False):
+    isNodeInstance = isNodeApp(appName, appInfoCache)
     for i in tqdm.tqdm(range(0,len(instances), parallelism)):
         for instance in instances[i:i+parallelism]:
-            endpoint = oorEndpoint(instance, appName)
+            endpoint = oorEndpoint(instance, appName, appInfoCache)
             if None == endpoint:
                 print("No admin port info in instance: " + instance['id'])
                 return
@@ -388,8 +387,9 @@ def destroyApp(appName, force=False):
         print("Not destroying app {0}".format(appName))
 
 def destroyCommand(destroyAppOptionsParser):
+    appInfoCache = dict()
     appName = destroyAppOptionsParser.app
-    r = getAppInfo(appName)
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("Error: No such app:" + appName)
         return
@@ -417,8 +417,8 @@ def getMesosSlaveId(mesosMasterEndpoint, hostname):
         else:
             return slaves[0]
 
-def getInstanceList(appName):
-    r = getAppInfo(appName)
+def getInstanceList(appName, appInfoCache):
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("No app: " + appName)
         return
@@ -427,8 +427,8 @@ def getInstanceList(appName):
     instances = app['tasks']
     return instances
 
-def getTaskInstance(task, filter):
-    instances = getInstanceList(task['appId'])
+def getTaskInstance(task, filter, appInfoCache):
+    instances = getInstanceList(task['appId'], appInfoCache)
     if filter(instances):
         return {'appName': task['appId'], 'taskId': task['id'], 'instance': task}
 
@@ -449,14 +449,15 @@ def decommission(mesosMasterEndpoint, hostname):
         return
     print("Fetching list of tasks that need to be killed....")
     tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
-    candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
-    skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
+    appInfoCache = dict()
+    candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1, appInfoCache) for task in tasks_on_slave])
+    skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1, appInfoCache) for task in tasks_on_slave if task not in candidate_tasks]
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
     failures = []
     apps_to_scale = dict()
     for task in candidate_tasks:
-        apps_to_scale[task['appName']] = len(getInstanceList(task['appName']))
+        apps_to_scale[task['appName']] = len(getInstanceList(task['appName'], appInfoCache))
     if skipped_tasks:
         print("Skipping suspend of following apps because they are running with only one instance \n{0}"
             .format("\n".join(set([task['appName'] for task in skipped_tasks]))))
@@ -465,7 +466,8 @@ def decommission(mesosMasterEndpoint, hostname):
     for task in tqdm.tqdm(candidate_tasks):
         print("Killing app = {0}, instance = {1}".format(task['appName'], task['taskId']))
         try:
-            killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True, scale=True)
+            killInstance(appName=task['appName'], instance=task['instance'], grace=30, rangerOOR=True, lbOOR=True,
+                         scale=True, appInfoCache=appInfoCache)
         except KeyboardInterrupt:
             print("Received <CTRL-C> stopping everything")
             exit(1)
@@ -494,7 +496,7 @@ def decommissionCommand(decommissionClusterOptionsParser):
 
 def waitForTargetScale(appName, targetScale):
     while True:
-        r = getAppInfo(appName)
+        r = getAppInfo(appName, appInfoCache=None) # Not passing appInfoCache as appInfo should not be cached here
         if None == r:
             print("No app: " + appName)
             exit(1)
@@ -519,7 +521,8 @@ def restartCommand(restartOptionsParser):
     rangerOOR = restartOptionsParser.rangeroor
     parallelism = restartOptionsParser.parallelism
     fabric = restartOptionsParser.isfabric
-    r = getAppInfo(appName)
+    appInfoCache = dict()
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("Error: No such app:" + appName)
         return
@@ -553,10 +556,12 @@ def restartCommand(restartOptionsParser):
             instances_batch = instances[i:i+parallelism]
             if i + parallelism > len(instances) - parallelism and len(instances_batch) == parallelism and restartOptionsParser.noScaling == False:
                     print("suspending with scale down")
-                    suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, True, fabric)
+                    suspendParallel(appName=appName, instances=instances_batch, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR,
+                                    parallelism=parallelism, scale=True, appInfoCache=appInfoCache, fabric=fabric)
                     targetScale = targetScale - parallelism
             else:
-                suspendParallel(appName, instances_batch, grace, rangerOOR, lbOOR, parallelism, False, fabric)
+                suspendParallel(appName=appName, instances=instances_batch, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR,
+                                parallelism=parallelism, scale=False, appInfoCache=appInfoCache, fabric=fabric)
             waitForTargetScale(appName, targetScale)
         if restartOptionsParser.noScaling == False:
             scale(appName, targetScale)
@@ -568,7 +573,8 @@ def restartCommand(restartOptionsParser):
             scale(appName, targetScale)
             waitForTargetScale(appName, targetScale)
         for instance in tqdm.tqdm(instances):
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, False, fabric)
+            killInstance(appName=appName, instance=instance, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR, scale=False,
+                         appInfoCache=appInfoCache, fabric=fabric)
             time.sleep(2)
             if (instances.index(instance) == len(instances) - 1):
                 if restartOptionsParser.noScaling == False:
@@ -585,7 +591,8 @@ def restartCommand(restartOptionsParser):
         print("App restarted")
 
 def infoCommand(infoOptionsParser):
-    r = getAppInfo(infoOptionsParser.app)
+    appInfoCache = dict()
+    r = getAppInfo(infoOptionsParser.app, appInfoCache)
     if None == r:
         print("Error: No such app:" + infoOptionsParser.app)
         return
@@ -614,7 +621,8 @@ def scaleCommand(scaleOptionsParser):
     rangerOOR = scaleOptionsParser.rangeroor
     fabric = scaleOptionsParser.isfabric
     parallelism = scaleOptionsParser.parallelism
-    r = getAppInfo(appName)
+    appInfoCache = dict()
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("Error: No such app:" + appName)
         return
@@ -647,13 +655,15 @@ def scaleCommand(scaleOptionsParser):
         else:
             numberOfInstancesToKill = currentInstances - instanceCount
             instancesToSuspend = instances[0:numberOfInstancesToKill]
-            suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True)
+            suspendParallel(appName=appName, instances=instancesToSuspend, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR,
+                            parallelism=parallelism, scale=True, appInfoCache=appInfoCache)
             waitForTargetScale(appName, instanceCount)
     else:
         for instance in instances:
             if instanceCount >= currentInstances:
                 break
-            killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
+            killInstance(appName=appName, instance=instance, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR, scale=True,
+                         appInfoCache=appInfoCache, fabric=fabric)
             time.sleep(2)
             currentInstances = currentInstances - 1
             print("Instance " + instance['id'] + " stop requested")
@@ -668,7 +678,8 @@ def suspendCommand(suspendOptionsParser):
     destroy = suspendOptionsParser.destroy
     parallelism = suspendOptionsParser.parallelism
     fabric = suspendOptionsParser.isfabric
-    r = getAppInfo(appName)
+    appInfoCache = dict()
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("Error: No such app:" + appName)
         return
@@ -688,11 +699,13 @@ def suspendCommand(suspendOptionsParser):
         sendEmail(subject, content, getEmailTo(babeConfig), appOwnerEmail)
 
         if parallelism > 1:
-            suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, True, fabric)
+            suspendParallel(appName=appName, instances=instances, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR,
+                            parallelism=parallelism, scale=True, appInfoCache=appInfoCache, fabric=fabric)
             waitForTargetScale(appName, 0)
         else:
             for instance in tqdm.tqdm(instances):
-                killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
+                killInstance(appName=appName, instance=instance, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR, scale=True,
+                             appInfoCache=appInfoCache, fabric=fabric)
                 time.sleep(2)
                 currentInstances = currentInstances - 1
             waitForTargetScale(appName, 0)
@@ -706,7 +719,8 @@ def killSingleAppInstance(killSingleAppConfig):
     lbOOR = killSingleAppConfig.lboor
     rangerOOR = killSingleAppConfig.rangeroor
     fabric = killSingleAppConfig.isfabric
-    r = getAppInfo(appName)
+    appInfoCache = dict()
+    r = getAppInfo(appName, appInfoCache)
     if None == r:
         print("Error: No such app:" + appName)
         return
@@ -729,7 +743,8 @@ def killSingleAppInstance(killSingleAppConfig):
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, rangerOOR, lbOOR, True, fabric)
+    killInstance(appName=appName, instance=instance, grace=grace, rangerOOR=rangerOOR, lbOOR=lbOOR, scale=True,
+                 appInfoCache=appInfoCache, fabric=fabric)
     waitForTargetScale(appName, currentInstances - 1)
 
 def getUserPassword():
