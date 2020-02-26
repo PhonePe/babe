@@ -268,7 +268,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
             print("Skipping connection error - exposed admin port may be invalid ?!")
             pass
 
-    if rangerOorUrl != None and rangerOOR:
+    if rangerOOR:
         print("Calling " + rangerOorUrl)
         try:
             oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
@@ -327,7 +327,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 else:
                     print("Close processor api returned: [" + str(closeProcessorResponse.status_code) + "] " + closeProcessorResponse.text)
                     return
-            if rangerOorUrl != None and rangerOOR:
+            if rangerOOR:
                 print("Calling " + rangerOorUrl)
                 oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify)
                 if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
