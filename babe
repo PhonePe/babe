@@ -251,7 +251,7 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
         print("No admin port info in instance: " + instance['id'])
         return
 
-    if not isNodeApp and fabric:
+    if fabric:
         closeProcessorUrl = endpoint + "/close-processors"
         print("Calling " + closeProcessorUrl)
         try:
@@ -316,7 +316,7 @@ def suspendParallel(appName, instances, grace, rangerOOR, lbOOR, parallelism, sc
                 print("No admin port info in instance: " + instance['id'])
                 return
 
-            if not isNodeApp and fabric:
+            if fabric:
                 closeProcessorUrl = endpoint + "/close-processors"
                 print("Calling " + closeProcessorUrl)
 
