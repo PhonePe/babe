@@ -644,7 +644,7 @@ def scaleCommand(scaleOptionsParser):
         else:
             numberOfInstancesToKill = currentInstances - instanceCount
             instancesToSuspend = instances[0:numberOfInstancesToKill]
-            suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, isNodeApp, True)
+            suspendParallel(appName, instancesToSuspend, grace, rangerOOR, lbOOR, parallelism, True, isNodeApp)
             waitForTargetScale(appName, instanceCount)
     else:
         for instance in instances:
