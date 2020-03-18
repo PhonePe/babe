@@ -445,10 +445,12 @@ def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
         return
     print("Fetching list of tasks that need to be killed....")
     tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
-    candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
-    skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
     if decommissionSingleInstanceApps:
-        candidate_tasks = candidate_tasks + skipped_tasks
+        candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 0) for task in tasks_on_slave])
+        skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 0) for task in tasks_on_slave if task not in candidate_tasks]
+    else:
+        candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
+        skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
     prompt_response = raw_input(
