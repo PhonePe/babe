@@ -428,7 +428,7 @@ def getTaskInstance(task, filter):
     if filter(instanceInfo['instanceList']):
         return {'appName': task['appId'], 'taskId': task['id'], 'isNodeApp': instanceInfo['isNodeApp'], 'instance': task}
 
-def decommission(mesosMasterEndpoint, hostname):
+def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
     if not mesosMasterEndpoint:
         mesosMasterEndpoint = mesos_master_endpoint()
     slaveId = getMesosSlaveId(mesosMasterEndpoint, hostname)
@@ -447,6 +447,8 @@ def decommission(mesosMasterEndpoint, hostname):
     tasks_on_slave = sorted([task for task in r.json()['tasks'] if task['slaveId'] == slaveId])
     candidate_tasks = sorted([getTaskInstance(task, lambda l: len(l) > 1) for task in tasks_on_slave])
     skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
+    if decommissionSingleInstanceApps:
+        candidate_tasks = candidate_tasks + skipped_tasks
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
     prompt_response = raw_input(
@@ -501,7 +503,7 @@ def decommissionCommand(decommissionClusterOptionsParser):
     subject = "[Babe Alert] Decommissioning " + decommissionClusterOptionsParser.hostname
     content = "Hostname: " + str(decommissionClusterOptionsParser.hostname) + "<br>" + "mesos_endpoint: " + str(decommissionClusterOptionsParser.mesos_endpoint) + "<br>" + "User: " + getpass.getuser()
     sendEmail(subject, content, getEmailTo(babeConfig), None)
-    decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname)
+    decommission(decommissionClusterOptionsParser.mesos_endpoint, decommissionClusterOptionsParser.hostname, decommissionClusterOptionsParser.decommissionSingleInstanceApps)
 
 def waitForTargetScale(appName, targetScale):
     while True:
@@ -835,6 +837,7 @@ if __name__ == "__main__":
     decommissionClusterOptionsParser = subparsers.add_parser('decommission', help='Decommission a Mesos slave')
     decommissionClusterOptionsParser.add_argument('-m', '--mesos-endpoint', help='Mesos master host:port', dest='mesos_endpoint')
     decommissionClusterOptionsParser.add_argument('-n', '--hostname', help='Hostname of Mesos slave that needs to be decommissioned', default='localhost', required=True)
+    decommissionClusterOptionsParser.add_argument('-si', '--decommission-single-instance-apps', help='decommission single instance apps too', default='false', required=False, dest='decommissionSingleInstanceApps')
     decommissionClusterOptionsParser.set_defaults(func=decommissionCommand)
 
     parsed=parser.parse_args()
