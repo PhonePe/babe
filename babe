@@ -837,7 +837,7 @@ if __name__ == "__main__":
     decommissionClusterOptionsParser = subparsers.add_parser('decommission', help='Decommission a Mesos slave')
     decommissionClusterOptionsParser.add_argument('-m', '--mesos-endpoint', help='Mesos master host:port', dest='mesos_endpoint')
     decommissionClusterOptionsParser.add_argument('-n', '--hostname', help='Hostname of Mesos slave that needs to be decommissioned', default='localhost', required=True)
-    decommissionClusterOptionsParser.add_argument('-si', '--decommission-single-instance-apps', help='decommission single instance apps too', default='false', required=False, dest='decommissionSingleInstanceApps')
+    decommissionClusterOptionsParser.add_argument('-si', '--decommission-single-instance-apps', help='decommission single instance apps too', dest='decommissionSingleInstanceApps', action='store_true')
     decommissionClusterOptionsParser.set_defaults(func=decommissionCommand)
 
     parsed=parser.parse_args()
