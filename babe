@@ -270,35 +270,53 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
 
     if rangerOOR:
         rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
-        print("Calling " + rangerOorUrl)
-        try:
-            oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Took node oor on ranger")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-                #return
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+        if rangerOorUrl is None:
+            print("ranger OOR url is None")
+        else :
+            print("Calling " + rangerOorUrl)
+        if rangerOorUrl is not None:
+            try:
+                oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    #return
+            #except ConnectionError:
+            #    print("Skipping connection error - exposed admin port may be invalid ?!")
+            #    pass
+            except:
+                print("Exception while OOR")
+                pass
 
     if not isNodeApp and lbOOR:
-        loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        print("Calling " + loadbalancer_oor_url)
-        try:
-            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Node is oor on loadbalancer")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Loadbalancer OOR api returned: [" + str(
-                    oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+        loadbalancer_oor_url = None
+        if endpoint is None:
+            print("admin endpoint is None")
+        else:
+            loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+        if loadbalancer_oor_url is None:
+            print("loadBalancerOOR url is None")
+        else:
+            print("Calling " + loadbalancer_oor_url)
+        if loadbalancer_oor_url is not None:
+            try:
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Loadbalancer OOR api returned: [" + str(
+                        oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+            #except ConnectionError:
+            #    print("Skipping connection error - exposed admin port may be invalid ?!")
+            #    pass
+            except:
+                print("Exception while lb oor")
+                pass
 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
