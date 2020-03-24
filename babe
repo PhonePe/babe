@@ -511,13 +511,18 @@ def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
     if failures:
         print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
     else:
-        all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
+        all_slaves_killed = ''
+        print("check if all instances on this slave killed and stop mesos slave.\n")
+        while all_slaves_killed is not 'y' and all_slaves_killed is not 'n':
+            all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
         if all_slaves_killed == 'y':
             for appName in tqdm.tqdm(apps_to_scale):
                 scale_value = apps_to_scale.get(appName)
                 print("scaling app: {0} to {1}.".format(appName, scale_value))
                 scale(appName, scale_value)
                 waitForTargetScale(appName, scale_value)
+        else:
+            print("all slaves killed input is not y/n")
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
