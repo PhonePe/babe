@@ -248,9 +248,9 @@ def scale(appName, scale, force=False):
 
 def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=False, fabric=False):
     endpoint = adminEndpoint(instance)
-    if not isNodeApp and None == endpoint:
-        print("No admin port info in instance: " + instance['id'])
-        return
+    #if not isNodeApp and None == endpoint:
+    #    print("No admin port info in instance: " + instance['id'])
+    #    return
 
     if fabric:
         closeProcessorUrl = endpoint + "/close-processors"
@@ -270,35 +270,53 @@ def killInstance(appName, instance, grace, rangerOOR, lbOOR, scale, isNodeApp=Fa
 
     if rangerOOR:
         rangerOorUrl = getRangerOorUrl(instance, isNodeApp)
-        print("Calling " + rangerOorUrl)
-        try:
-            oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Took node oor on ranger")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
-                return
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+        if rangerOorUrl is None:
+            print("ranger OOR url is None")
+        else :
+            print("Calling " + rangerOorUrl)
+        if rangerOorUrl is not None:
+            try:
+                oorResponse=requests.post(rangerOorUrl, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Took node oor on ranger")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Ranger OOR api returned: [" + str(oorResponse.status_code) + "] " + oorResponse.text)
+                    #return
+            #except ConnectionError:
+            #    print("Skipping connection error - exposed admin port may be invalid ?!")
+            #    pass
+            except:
+                print("Exception while OOR")
+                pass
 
     if not isNodeApp and lbOOR:
-        loadbalancer_oor_url = endpoint + "/tasks/OorTask"
-        print("Calling " + loadbalancer_oor_url)
-        try:
-            oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
-            if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
-                print("Node is oor on loadbalancer")
-            elif 404 == oorResponse.status_code:
-                print("Ranger OOR api returned 404")
-            else:
-                print("Loadbalancer OOR api returned: [" + str(
-                    oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
-        except ConnectionError:
-            print("Skipping connection error - exposed admin port may be invalid ?!")
-            pass
+        loadbalancer_oor_url = None
+        if endpoint is None:
+            print("admin endpoint is None")
+        else:
+            loadbalancer_oor_url = endpoint + "/tasks/OorTask"
+        if loadbalancer_oor_url is None:
+            print("loadBalancerOOR url is None")
+        else:
+            print("Calling " + loadbalancer_oor_url)
+        if loadbalancer_oor_url is not None:
+            try:
+                oorResponse = requests.post(loadbalancer_oor_url, auth=httpBasicCreds, verify=httpsVerify, timeout=requestsTimeout)
+                if 200 == oorResponse.status_code or 201 == oorResponse.status_code:
+                    print("Node is oor on loadbalancer")
+                elif 404 == oorResponse.status_code:
+                    print("Ranger OOR api returned 404")
+                else:
+                    print("Loadbalancer OOR api returned: [" + str(
+                        oorResponse.status_code) + "] !! If this is being fronted by loadbalancer, inflight calls will fail!")
+            #except ConnectionError:
+            #    print("Skipping connection error - exposed admin port may be invalid ?!")
+            #    pass
+            except:
+                print("Exception while lb oor")
+                pass
 
     print("Waiting for grace period: " + str(grace) + " Second(s)")
     time.sleep(grace)
@@ -453,21 +471,22 @@ def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
         skipped_tasks = [getTaskInstance(task, lambda l: len(l) == 1) for task in tasks_on_slave if task not in candidate_tasks]
     candidate_tasks = [task for task in candidate_tasks if task is not None]
     skipped_tasks = [task for task in skipped_tasks if task is not None]
-    prompt_response = raw_input(
-        "Do you want to ignore single instance apps on node with hostname = {0}, slaveId = {1} [y/n]? ".format(hostname, slaveId))
-    if prompt_response == 'y':
-        print("Single instance applications:")
-        print (skipped_tasks)
-        re_added_apps = []
-        prompt_response = raw_input("Ignore app list/pattern (Separated by comma for multiple apps/patterns):")
-        ignore_app_list = prompt_response.split(",")
-        for i_app in ignore_app_list:
-            for s_task in skipped_tasks:
-                if s_task['appName'] == i_app.strip() or re.match(i_app.strip(), s_task['appName']) is not None:
-                    candidate_tasks.append(s_task)
-                    re_added_apps.append(s_task)
-        candidate_tasks = sorted([task for task in candidate_tasks if task is not None])
-        skipped_tasks = sorted([task for task in candidate_tasks if task['appName'] not in re_added_apps])
+    if decommissionSingleInstanceApps == False:
+        prompt_response = raw_input(
+            "Do you want to ignore single instance apps on node with hostname = {0}, slaveId = {1} [y/n]? ".format(hostname, slaveId))
+        if prompt_response == 'y':
+            print("Single instance applications:")
+            print (skipped_tasks)
+            re_added_apps = []
+            prompt_response = raw_input("Ignore app list/pattern (Separated by comma for multiple apps/patterns):")
+            ignore_app_list = prompt_response.split(",")
+            for i_app in ignore_app_list:
+                for s_task in skipped_tasks:
+                    if s_task['appName'] == i_app.strip() or re.match(i_app.strip(), s_task['appName']) is not None:
+                        candidate_tasks.append(s_task)
+                        re_added_apps.append(s_task)
+            candidate_tasks = sorted([task for task in candidate_tasks if task is not None])
+            skipped_tasks = sorted([task for task in candidate_tasks if task['appName'] not in re_added_apps])
     failures = []
     apps_to_scale = dict()
     for task in candidate_tasks:
@@ -492,13 +511,18 @@ def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
     if failures:
         print("Failed to properly suspend the following tasks \n{0}".format("\n".join([task['taskId'] for task in failures])))
     else:
-        all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
+        all_slaves_killed = ''
+        print("check if all instances on this slave killed and stop mesos slave.\n")
+        while all_slaves_killed is not 'y' and all_slaves_killed is not 'n':
+            all_slaves_killed = raw_input("Is all slaves killed completely? Please check and respond. [y/n] ")
         if all_slaves_killed == 'y':
             for appName in tqdm.tqdm(apps_to_scale):
                 scale_value = apps_to_scale.get(appName)
                 print("scaling app: {0} to {1}.".format(appName, scale_value))
                 scale(appName, scale_value)
-                waitForTargetScale(appName, scale_value)
+                time.sleep(5)
+        else:
+            print("all slaves killed input is not y/n")
 
 
 def decommissionCommand(decommissionClusterOptionsParser):
