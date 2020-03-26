@@ -520,7 +520,7 @@ def decommission(mesosMasterEndpoint, hostname, decommissionSingleInstanceApps):
                 scale_value = apps_to_scale.get(appName)
                 print("scaling app: {0} to {1}.".format(appName, scale_value))
                 scale(appName, scale_value)
-                waitForTargetScale(appName, scale_value)
+                time.sleep(5)
         else:
             print("all slaves killed input is not y/n")
 
