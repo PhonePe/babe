@@ -771,8 +771,9 @@ def killSingleAppInstance(killSingleAppConfig):
             break
     if candidateInstance == None:
         print("Error: Invalid instance ID: " + instanceId)
+        return
     currentInstances=len(instances)
-    killInstance(appName, instance, grace, rangerOOR, lbOOR, True, isNodeApp, fabric)
+    killInstance(appName, candidateInstance, grace, rangerOOR, lbOOR, True, isNodeApp, fabric)
     waitForTargetScale(appName, currentInstances - 1)
 
 def getUserPassword():
