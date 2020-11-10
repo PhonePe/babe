@@ -102,7 +102,7 @@ def get_leader_url(path):
         l_data = l_res.json()
         return protocol + "://" + l_data['leader'] + path
     else:
-        print("Returning seeded marathon endpoint since leader call gave status : " + l_res.status_code)
+        print("Returning seeded marathon endpoint since leader call gave status : " + str(l_res.status_code))
         return protocol + "://" + marathon + path
 
 def url(path):
