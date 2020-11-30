@@ -1,0 +1,9 @@
+Package: babe
+Version: 1.0
+Section: pp/ops
+Priority: standard
+Architecture: all
+Depends: python-requests,libpython2.7-stdlib,python-dateutil,python-tabulate, python-termcolor
+Maintainer: santanusinha <santanu@phonepe.com>, jay <jay@phonepe.com>
+Description:  Tool to manage services running on Marathon.
+
