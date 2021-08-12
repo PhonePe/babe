@@ -97,7 +97,7 @@ def sendEmail(subject, content, to, cc):
 
 def get_leader_url(path):
     cur_url = protocol + "://" + marathon + "/v2/leader"
-    l_res = requests.get(cur_url)
+    l_res = requests.get(cur_url, auth=httpBasicCreds, verify=httpsVerify)
     if l_res.status_code == 200:
         l_data = l_res.json()
         return protocol + "://" + l_data['leader'] + path
