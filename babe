@@ -679,7 +679,7 @@ def scaleCommand(scaleOptionsParser):
     if parallelism > 1:
         if instanceCount > currentInstances:
            while instanceCount > currentInstances:
-               targetScale = instanceCount + parallelism
+               targetScale = currentInstances + parallelism
                if targetScale > instanceCount:
                    targetScale = instanceCount
                scale(appName, targetScale)
